@@ -72,6 +72,62 @@ export const ALL_ROLES: UserRole[] = [
   "coordinador",
 ];
 
+export const DEFAULT_DEPARTMENT_BY_ROLE: Record<UserRole, string> = {
+  rector: "Rectorado",
+  secretaria: "Secretaría General",
+  docente: "Docencia",
+  coordinador: "Coordinación de Área",
+};
+
+export const EXCEL_ROLE_LABELS: Record<UserRole, string> = {
+  secretaria: "Secretario / Personal Administrativo",
+  docente: "Docente",
+  coordinador: "Coordinador de Área",
+  rector: "Rector / Equipo Directivo",
+};
+
+/**
+ * Normaliza texto de rol proveniente de Excel o formularios al valor interno de BD.
+ */
+export function parseRoleInput(raw: string): UserRole | null {
+  const normalized = raw
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (!normalized) return null;
+
+  if (
+    normalized === "secretaria" ||
+    normalized === "secretario" ||
+    normalized.includes("secretar") ||
+    normalized.includes("administrativo")
+  ) {
+    return "secretaria";
+  }
+
+  if (normalized === "docente" || normalized.includes("docent") || normalized.includes("profesor")) {
+    return "docente";
+  }
+
+  if (normalized === "coordinador" || normalized.includes("coordinad")) {
+    return "coordinador";
+  }
+
+  if (
+    normalized === "rector" ||
+    normalized === "admin" ||
+    normalized.includes("rector") ||
+    normalized.includes("directivo") ||
+    normalized.includes("administrador")
+  ) {
+    return "rector";
+  }
+
+  return null;
+}
+
 export const ROLE_CONFIG: Record<UserRole, RoleDefinition> = {
   rector: {
     key: "rector",
