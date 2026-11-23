@@ -25,10 +25,57 @@ export interface ManagedUserRecord {
   created_at: string;
 }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const STRICT_EMAIL_REGEX =
+  /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+export const ECUADOR_CEDULA_REGEX = /^\d{10}$/;
 
 export function normalizeIdentification(raw: string): string {
   return raw.trim().replace(/\s+/g, "");
+}
+
+export function validateUserFields(input: {
+  fullName: string;
+  identification: string;
+  institutionalEmail: string;
+  role: UserRole | null;
+  rawRole?: string;
+}): string[] {
+  const errors: string[] = [];
+  const fullName = input.fullName.trim();
+  const identification = normalizeIdentification(input.identification);
+  const email = input.institutionalEmail.trim().toLowerCase();
+
+  if (fullName.length < 3) {
+    errors.push("Faltan nombres completos (mínimo 3 caracteres).");
+  }
+
+  if (!identification) {
+    errors.push("Falta el número de cédula.");
+  } else if (!/^\d+$/.test(identification)) {
+    errors.push("La cédula solo debe contener dígitos numéricos.");
+  } else if (!ECUADOR_CEDULA_REGEX.test(identification)) {
+    errors.push(
+      `La cédula ecuatoriana debe tener exactamente 10 dígitos (tiene ${identification.length}).`
+    );
+  }
+
+  if (!email) {
+    errors.push("Falta el correo electrónico.");
+  } else if (!STRICT_EMAIL_REGEX.test(email)) {
+    errors.push(
+      "Correo no válido (debe incluir @ y un dominio válido, ej. usuario@gmail.com)."
+    );
+  }
+
+  if (!input.role) {
+    errors.push(
+      input.rawRole?.trim()
+        ? `Rol no válido: "${input.rawRole.trim()}".`
+        : "No se escogió un rol."
+    );
+  }
+
+  return errors;
 }
 
 export async function createManagedUser(
@@ -44,26 +91,15 @@ export async function createManagedUser(
   const department =
     input.department?.trim() || DEFAULT_DEPARTMENT_BY_ROLE[input.role];
 
-  if (fullName.length < 3) {
-    return {
-      ok: false,
-      error: "Los nombres completos deben tener al menos 3 caracteres.",
-    };
-  }
+  const fieldErrors = validateUserFields({
+    fullName,
+    identification,
+    institutionalEmail,
+    role: input.role,
+  });
 
-  if (!/^[0-9A-Za-z-]{6,20}$/.test(identification)) {
-    return {
-      ok: false,
-      error:
-        "La cédula / identificación debe tener entre 6 y 20 caracteres alfanuméricos sin espacios.",
-    };
-  }
-
-  if (!EMAIL_REGEX.test(institutionalEmail)) {
-    return {
-      ok: false,
-      error: "El correo institucional no tiene un formato válido.",
-    };
+  if (fieldErrors.length > 0) {
+    return { ok: false, error: fieldErrors.join(" ") };
   }
 
   // Verificar si ya existe la cédula en profiles

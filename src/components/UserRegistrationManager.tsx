@@ -3,9 +3,11 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Download,
   FileSpreadsheet,
+  Info,
   KeyRound,
   Loader2,
   Search,
@@ -31,19 +33,43 @@ export interface DirectoryUser {
   created_at: string;
 }
 
+interface PreviewExcelRow {
+  rowNumber: number;
+  fullName: string;
+  identification: string;
+  institutionalEmail: string;
+  role: UserRole | null;
+  rawRole: string;
+  status: "valid_new" | "existing" | "invalid";
+  message: string;
+}
+
+interface BulkPreviewResponse {
+  mode: "preview";
+  fileName: string;
+  totalRows: number;
+  newCount: number;
+  existingCount: number;
+  invalidCount: number;
+  canImport: boolean;
+  rows: PreviewExcelRow[];
+}
+
 interface BulkRowResult {
   rowNumber: number;
   fullName: string;
   identification: string;
   institutionalEmail: string;
   role: UserRole | null;
-  status: "created" | "error";
+  status: "created" | "skipped" | "error";
   message: string;
 }
 
-interface BulkResponse {
+interface BulkImportResponse {
+  mode: "import";
   totalProcessed: number;
   createdCount: number;
+  skippedCount: number;
   errorCount: number;
   results: BulkRowResult[];
 }
@@ -74,7 +100,7 @@ export function UserRegistrationManager({
   );
   const [users, setUsers] = useState<DirectoryUser[]>(initialUsers);
 
-  // Estado formulario individual (sin contraseña ni departamento: clave por defecto = cédula)
+  // Estado formulario individual
   const [fullName, setFullName] = useState("");
   const [identification, setIdentification] = useState("");
   const [institutionalEmail, setInstitutionalEmail] = useState("");
@@ -84,16 +110,25 @@ export function UserRegistrationManager({
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
   // Estado carga masiva Excel
-  const [templateRows, setTemplateRows] = useState<number>(20);
+  const [templateRowsInput, setTemplateRowsInput] = useState<string>("20");
   const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [validatingBulk, setValidatingBulk] = useState(false);
+  const [bulkPreview, setBulkPreview] = useState<BulkPreviewResponse | null>(
+    null
+  );
   const [uploadingBulk, setUploadingBulk] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
-  const [bulkResult, setBulkResult] = useState<BulkResponse | null>(null);
+  const [bulkResult, setBulkResult] = useState<BulkImportResponse | null>(null);
 
   // Estado tabla directorio
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | UserRole>("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const parsedTemplateRows = Number.parseInt(templateRowsInput, 10);
+  const safeTemplateRows = Number.isFinite(parsedTemplateRows)
+    ? Math.min(500, Math.max(1, parsedTemplateRows))
+    : 20;
 
   async function refreshUsers() {
     const res = await fetch("/api/admin/users", { cache: "no-store" });
@@ -107,15 +142,23 @@ export function UserRegistrationManager({
     e.preventDefault();
     setFormError(null);
     setFormSuccess(null);
-    setCreating(true);
 
+    const cleanId = identification.trim();
+    if (!/^\d{10}$/.test(cleanId)) {
+      setFormError(
+        `La cédula ecuatoriana debe tener exactamente 10 dígitos numéricos (ingresaste ${cleanId.length}).`
+      );
+      return;
+    }
+
+    setCreating(true);
     try {
       const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fullName,
-          identification,
+          identification: cleanId,
           institutionalEmail,
           role,
         }),
@@ -145,16 +188,56 @@ export function UserRegistrationManager({
     }
   }
 
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     setBulkError(null);
     setBulkResult(null);
+    setBulkPreview(null);
+
     const selected = e.target.files?.[0] ?? null;
-    if (selected && !selected.name.toLowerCase().endsWith(".xlsx")) {
-      setBulkError("Selecciona un archivo Excel válido (.xlsx).");
+    e.target.value = "";
+
+    if (!selected) {
       setExcelFile(null);
       return;
     }
+
+    if (!selected.name.toLowerCase().endsWith(".xlsx")) {
+      setBulkError("Formato no válido. Selecciona un archivo Excel (.xlsx).");
+      setExcelFile(null);
+      return;
+    }
+
     setExcelFile(selected);
+    setValidatingBulk(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selected);
+      formData.append("dryRun", "true");
+
+      const res = await fetch("/api/admin/users/bulk", {
+        method: "POST",
+        body: formData,
+      });
+
+      const payload = (await res.json()) as BulkPreviewResponse & {
+        error?: string;
+      };
+
+      if (!res.ok) {
+        setBulkError(
+          payload.error ||
+            "No se pudo validar el archivo Excel. Revisa el documento antes de subirlo."
+        );
+        return;
+      }
+
+      setBulkPreview(payload);
+    } catch {
+      setBulkError("Error de conexión al analizar el archivo Excel.");
+    } finally {
+      setValidatingBulk(false);
+    }
   }
 
   async function handleBulkUpload(e: FormEvent<HTMLFormElement>) {
@@ -162,8 +245,10 @@ export function UserRegistrationManager({
     setBulkError(null);
     setBulkResult(null);
 
-    if (!excelFile) {
-      setBulkError("Primero selecciona el archivo Excel (.xlsx) con los usuarios.");
+    if (!excelFile || !bulkPreview || !bulkPreview.canImport) {
+      setBulkError(
+        "Revisa y corrige el documento Excel antes de importar los usuarios."
+      );
       return;
     }
 
@@ -177,7 +262,9 @@ export function UserRegistrationManager({
         body: formData,
       });
 
-      const payload = (await res.json()) as BulkResponse & { error?: string };
+      const payload = (await res.json()) as BulkImportResponse & {
+        error?: string;
+      };
 
       if (!res.ok) {
         setBulkError(payload.error || "No se pudo procesar el archivo Excel.");
@@ -185,6 +272,7 @@ export function UserRegistrationManager({
       }
 
       setBulkResult(payload);
+      setBulkPreview(null);
       setExcelFile(null);
       await refreshUsers();
     } catch {
@@ -226,8 +314,7 @@ export function UserRegistrationManager({
     return (
       u.full_name.toLowerCase().includes(q) ||
       u.identification.toLowerCase().includes(q) ||
-      (u.institutional_email ?? "").toLowerCase().includes(q) ||
-      u.department.toLowerCase().includes(q)
+      (u.institutional_email ?? "").toLowerCase().includes(q)
     );
   });
 
@@ -336,15 +423,18 @@ export function UserRegistrationManager({
                   htmlFor="reg-id"
                   className="mb-1.5 block text-xs font-semibold text-foreground/80"
                 >
-                  Cédula / Número de identificación *
+                  Cédula (10 dígitos) *
                 </label>
                 <input
                   id="reg-id"
                   type="text"
                   inputMode="numeric"
+                  maxLength={10}
                   required
                   value={identification}
-                  onChange={(e) => setIdentification(e.target.value)}
+                  onChange={(e) =>
+                    setIdentification(e.target.value.replace(/\D/g, "").slice(0, 10))
+                  }
                   placeholder="Ej. 0912345678"
                   className="w-full rounded-xl border border-ue-border bg-background px-3.5 py-2.5 text-sm text-foreground outline-none transition focus:border-ue-crimson focus:bg-white focus:ring-2 focus:ring-ue-crimson/15"
                 />
@@ -415,8 +505,174 @@ export function UserRegistrationManager({
         {/* MEDIO 2: CARGA MASIVA POR EXCEL */}
         {activeTab === "masivo" && (
           <div className="mt-5 space-y-5">
+            {/* INFORMATIVO SUPERIOR DE VALIDACIÓN PREVIA AL SUBIR EL ARCHIVO */}
+            {validatingBulk && (
+              <div className="flex items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3.5 text-sm text-blue-800">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-600" />
+                <span>
+                  Analizando <strong>{excelFile?.name}</strong>: verificando
+                  cédulas de 10 dígitos, correos válidos, roles y usuarios ya
+                  existentes...
+                </span>
+              </div>
+            )}
+
+            {bulkError && (
+              <div
+                role="alert"
+                className="flex items-start gap-2.5 rounded-2xl border border-ue-crimson/30 bg-ue-crimson-soft px-4 py-3.5 text-sm text-ue-crimson-dark"
+              >
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-ue-crimson" />
+                <div>
+                  <p className="font-bold">Revisa el documento antes de subirlo</p>
+                  <p className="mt-0.5 text-xs leading-relaxed">{bulkError}</p>
+                </div>
+              </div>
+            )}
+
+            {bulkPreview && (
+              <div
+                className={`rounded-2xl border p-5 ${
+                  bulkPreview.invalidCount > 0
+                    ? "border-red-300 bg-red-50/70"
+                    : bulkPreview.newCount === 0
+                    ? "border-amber-300 bg-amber-50/70"
+                    : "border-emerald-300 bg-emerald-50/60"
+                }`}
+              >
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                  <div className="flex items-start gap-2.5">
+                    {bulkPreview.invalidCount > 0 ? (
+                      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+                    ) : bulkPreview.newCount === 0 ? (
+                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                    ) : (
+                      <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                    )}
+
+                    <div>
+                      <h4
+                        className={`text-sm font-bold ${
+                          bulkPreview.invalidCount > 0
+                            ? "text-red-800"
+                            : bulkPreview.newCount === 0
+                            ? "text-amber-900"
+                            : "text-emerald-900"
+                        }`}
+                      >
+                        {bulkPreview.invalidCount > 0
+                          ? `No se puede importar: revisa el documento antes de subirlo (${bulkPreview.invalidCount} ${
+                              bulkPreview.invalidCount === 1
+                                ? "error encontrado"
+                                : "errores encontrados"
+                            })`
+                          : bulkPreview.newCount === 0
+                          ? "Todos los usuarios del documento ya existen en el sistema"
+                          : bulkPreview.existingCount > 0
+                          ? `Documento listo: se registrarán ${bulkPreview.newCount} usuarios nuevos y se omitirán ${bulkPreview.existingCount} ya existentes sin alterarlos`
+                          : `Documento validado: ${bulkPreview.newCount} ${
+                              bulkPreview.newCount === 1
+                                ? "usuario nuevo listo"
+                                : "usuarios nuevos listos"
+                            } para importar`}
+                      </h4>
+                      <p className="mt-0.5 text-xs text-foreground/75">
+                        Archivo analizado: <strong>{bulkPreview.fileName}</strong>{" "}
+                        ({bulkPreview.totalRows}{" "}
+                        {bulkPreview.totalRows === 1 ? "registro" : "registros"})
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                    <span className="rounded-full border border-emerald-600/25 bg-white px-2.5 py-1 text-emerald-700">
+                      Nuevos: {bulkPreview.newCount}
+                    </span>
+                    <span className="rounded-full border border-amber-500/30 bg-white px-2.5 py-1 text-amber-700">
+                      Ya existen: {bulkPreview.existingCount}
+                    </span>
+                    <span className="rounded-full border border-red-500/30 bg-white px-2.5 py-1 text-red-700">
+                      Errores: {bulkPreview.invalidCount}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Detalle fila por fila de la prevalidación */}
+                <div className="mt-4 max-h-60 overflow-auto rounded-xl border border-black/5 bg-white p-3">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-ue-border text-ue-gray">
+                        <th className="py-1.5 pr-3 font-semibold">Fila</th>
+                        <th className="py-1.5 pr-3 font-semibold">Nombres</th>
+                        <th className="py-1.5 pr-3 font-semibold">Cédula</th>
+                        <th className="py-1.5 pr-3 font-semibold">Correo</th>
+                        <th className="py-1.5 pr-3 font-semibold">Rol</th>
+                        <th className="py-1.5 pr-3 font-semibold">Estado</th>
+                        <th className="py-1.5 font-semibold">Observación</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-ue-border/60">
+                      {bulkPreview.rows.map((row) => (
+                        <tr
+                          key={`${row.rowNumber}-${row.identification}`}
+                          className={
+                            row.status === "invalid" ? "bg-red-50/60" : ""
+                          }
+                        >
+                          <td className="py-1.5 pr-3 font-semibold text-foreground/70">
+                            {row.rowNumber}
+                          </td>
+                          <td className="py-1.5 pr-3 font-medium text-foreground">
+                            {row.fullName || "—"}
+                          </td>
+                          <td className="py-1.5 pr-3 font-mono text-foreground/80">
+                            {row.identification || "—"}
+                          </td>
+                          <td className="py-1.5 pr-3 text-foreground/75">
+                            {row.institutionalEmail || "—"}
+                          </td>
+                          <td className="py-1.5 pr-3 text-foreground/75">
+                            {row.role
+                              ? ROLE_SHORT_LABELS[row.role]
+                              : row.rawRole || "—"}
+                          </td>
+                          <td className="py-1.5 pr-3">
+                            {row.status === "valid_new" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Nuevo
+                              </span>
+                            ) : row.status === "existing" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">
+                                <Info className="h-3 w-3" />
+                                Ya existe
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 font-semibold text-red-700">
+                                <AlertCircle className="h-3 w-3" />
+                                Error
+                              </span>
+                            )}
+                          </td>
+                          <td
+                            className={`py-1.5 ${
+                              row.status === "invalid"
+                                ? "font-medium text-red-700"
+                                : "text-foreground/70"
+                            }`}
+                          >
+                            {row.message}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-4 lg:grid-cols-2">
-              {/* Paso 1: Descargar plantilla con cantidad configurable */}
+              {/* Paso 1: Descargar plantilla con input numérico simple (sin botones 10/25/50/100) */}
               <div className="flex flex-col justify-between rounded-2xl border border-ue-border bg-background p-5">
                 <div>
                   <span className="inline-flex rounded-full bg-ue-gold-soft px-2.5 py-0.5 text-[11px] font-bold text-[#7A5900]">
@@ -442,56 +698,52 @@ export function UserRegistrationManager({
                     >
                       Número de usuarios en la plantilla
                     </label>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <input
-                        id="template-rows"
-                        type="number"
-                        min={1}
-                        max={500}
-                        value={templateRows}
-                        onChange={(e) => {
-                          const parsed = Number.parseInt(e.target.value, 10);
-                          if (Number.isNaN(parsed)) {
-                            setTemplateRows(1);
-                          } else {
-                            setTemplateRows(Math.min(500, Math.max(1, parsed)));
-                          }
-                        }}
-                        className="w-24 rounded-lg border border-ue-border bg-background px-3 py-1.5 text-center text-sm font-bold text-ue-crimson outline-none focus:border-ue-crimson focus:bg-white focus:ring-2 focus:ring-ue-crimson/15"
-                      />
-                      <div className="flex flex-wrap gap-1.5">
-                        {[10, 25, 50, 100].map((preset) => (
-                          <button
-                            key={preset}
-                            type="button"
-                            onClick={() => setTemplateRows(preset)}
-                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                              templateRows === preset
-                                ? "bg-ue-crimson text-white"
-                                : "border border-ue-border bg-background text-foreground/75 hover:border-ue-crimson/40 hover:text-ue-crimson"
-                            }`}
-                          >
-                            {preset}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    <input
+                      id="template-rows"
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={templateRowsInput}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") {
+                          setTemplateRowsInput("");
+                          return;
+                        }
+                        const parsed = Number.parseInt(raw, 10);
+                        if (!Number.isNaN(parsed)) {
+                          setTemplateRowsInput(
+                            String(Math.min(500, Math.max(1, parsed)))
+                          );
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!templateRowsInput) {
+                          setTemplateRowsInput("20");
+                        }
+                      }}
+                      placeholder="Ej. 30"
+                      className="mt-2 w-32 rounded-lg border border-ue-border bg-background px-3 py-2 text-center text-sm font-bold text-ue-crimson outline-none focus:border-ue-crimson focus:bg-white focus:ring-2 focus:ring-ue-crimson/15"
+                    />
                     <p className="mt-1.5 text-[11px] text-ue-gray">
-                      Se generarán exactamente {templateRows} filas numeradas con
-                      lista desplegable en la columna Rol (máx. 500).
+                      Se generarán exactamente {safeTemplateRows}{" "}
+                      {safeTemplateRows === 1
+                        ? "fila numerada"
+                        : "filas numeradas"}{" "}
+                      con lista desplegable en la columna Rol (máx. 500).
                     </p>
                   </div>
                 </div>
 
                 <div className="mt-5">
                   <a
-                    href={`/api/admin/users/template?rows=${templateRows}`}
-                    download={`Formato_Registro_Usuarios_UE_San_Jose_${templateRows}.xlsx`}
+                    href={`/api/admin/users/template?rows=${safeTemplateRows}`}
+                    download={`Formato_Registro_Usuarios_UE_San_Jose_${safeTemplateRows}.xlsx`}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-ue-crimson px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-ue-crimson-dark"
                   >
                     <Download className="h-4 w-4 text-ue-gold" />
-                    Descargar plantilla ({templateRows}{" "}
-                    {templateRows === 1 ? "usuario" : "usuarios"})
+                    Descargar plantilla ({safeTemplateRows}{" "}
+                    {safeTemplateRows === 1 ? "usuario" : "usuarios"})
                   </a>
                 </div>
               </div>
@@ -509,9 +761,9 @@ export function UserRegistrationManager({
                     Sube el archivo completado
                   </h3>
                   <p className="mt-1.5 text-xs leading-relaxed text-foreground/70">
-                    Cada usuario se creará con su cédula como contraseña inicial
-                    temporal y se le exigirá cambiarla al ingresar por primera
-                    vez.
+                    Al seleccionar el archivo se validarán automáticamente las
+                    cédulas (10 dígitos), correos, roles y duplicados antes de
+                    permitir la importación.
                   </p>
 
                   <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-ue-crimson/30 bg-white px-4 py-5 text-center transition hover:border-ue-crimson hover:bg-ue-crimson-soft/30">
@@ -523,7 +775,7 @@ export function UserRegistrationManager({
                     </span>
                     <span className="mt-0.5 text-[11px] text-ue-gray">
                       {excelFile
-                        ? `${(excelFile.size / 1024).toFixed(1)} KB listo para importar`
+                        ? `${(excelFile.size / 1024).toFixed(1)} KB • clic para cambiar archivo`
                         : "Solo archivos Excel (.xlsx) hasta 5 MB"}
                     </span>
                     <input
@@ -538,13 +790,26 @@ export function UserRegistrationManager({
                 <div className="mt-4">
                   <button
                     type="submit"
-                    disabled={!excelFile || uploadingBulk}
+                    disabled={
+                      !excelFile ||
+                      validatingBulk ||
+                      uploadingBulk ||
+                      !bulkPreview?.canImport
+                    }
                     className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-ue-crimson px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-ue-crimson-dark disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {uploadingBulk ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Procesando usuarios...
+                        Importando usuarios...
+                      </>
+                    ) : bulkPreview?.canImport ? (
+                      <>
+                        <Upload className="h-4 w-4 text-ue-gold" />
+                        Importar {bulkPreview.newCount}{" "}
+                        {bulkPreview.newCount === 1
+                          ? "usuario nuevo"
+                          : "usuarios nuevos"}
                       </>
                     ) : (
                       <>
@@ -557,32 +822,27 @@ export function UserRegistrationManager({
               </form>
             </div>
 
-            {bulkError && (
-              <div
-                role="alert"
-                className="flex items-start gap-2.5 rounded-xl border border-ue-crimson/25 bg-ue-crimson-soft px-4 py-3 text-sm text-ue-crimson-dark"
-              >
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-ue-crimson" />
-                <span>{bulkError}</span>
-              </div>
-            )}
-
             {bulkResult && (
               <div className="rounded-2xl border border-ue-border bg-white p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ue-border pb-3">
                   <h4 className="text-sm font-bold text-foreground">
-                    Resultado de la carga masiva
+                    Resultado final de la carga masiva
                   </h4>
                   <div className="flex flex-wrap gap-2 text-xs font-semibold">
-                    <span className="rounded-full bg-background px-3 py-1 text-foreground border border-ue-border">
+                    <span className="rounded-full border border-ue-border bg-background px-3 py-1 text-foreground">
                       Procesados: {bulkResult.totalProcessed}
                     </span>
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700 border border-emerald-600/20">
+                    <span className="rounded-full border border-emerald-600/20 bg-emerald-50 px-3 py-1 text-emerald-700">
                       Creados: {bulkResult.createdCount}
                     </span>
-                    <span className="rounded-full bg-ue-crimson-soft px-3 py-1 text-ue-crimson border border-ue-crimson/20">
-                      Con error: {bulkResult.errorCount}
+                    <span className="rounded-full border border-amber-500/25 bg-amber-50 px-3 py-1 text-amber-700">
+                      Omitidos (ya existían): {bulkResult.skippedCount}
                     </span>
+                    {bulkResult.errorCount > 0 && (
+                      <span className="rounded-full border border-ue-crimson/20 bg-ue-crimson-soft px-3 py-1 text-ue-crimson">
+                        Errores: {bulkResult.errorCount}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -618,6 +878,11 @@ export function UserRegistrationManager({
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
                                 <CheckCircle2 className="h-3 w-3" />
                                 Creado
+                              </span>
+                            ) : item.status === "skipped" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">
+                                <Info className="h-3 w-3" />
+                                Omitido
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 rounded-full bg-ue-crimson-soft px-2 py-0.5 font-semibold text-ue-crimson">
@@ -729,11 +994,11 @@ export function UserRegistrationManager({
                     </td>
                     <td className="py-3 pr-4">
                       {u.must_change_password ? (
-                        <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 border border-amber-500/25">
+                        <span className="inline-flex rounded-full border border-amber-500/25 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
                           Pendiente cambio
                         </span>
                       ) : (
-                        <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-500/20">
+                        <span className="inline-flex rounded-full border border-blue-500/20 bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700">
                           Actualizada
                         </span>
                       )}

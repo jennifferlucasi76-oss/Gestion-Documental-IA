@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { verifyRectorApiCaller } from "@/lib/supabase/admin";
-import { createManagedUser } from "@/lib/admin-users";
+import {
+  createManagedUser,
+  normalizeIdentification,
+  validateUserFields,
+} from "@/lib/admin-users";
 import { parseRoleInput, type UserRole } from "@/lib/roles";
 
 const MAX_EXCEL_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -38,13 +42,24 @@ function readCellText(cell: ExcelJS.Cell): string {
   return String(val).trim();
 }
 
-interface BulkRowResult {
+interface AnalyzedExcelRow {
   rowNumber: number;
   fullName: string;
   identification: string;
   institutionalEmail: string;
   role: UserRole | null;
-  status: "created" | "error";
+  rawRole: string;
+  status: "valid_new" | "existing" | "invalid";
+  message: string;
+}
+
+interface ImportRowResult {
+  rowNumber: number;
+  fullName: string;
+  identification: string;
+  institutionalEmail: string;
+  role: UserRole | null;
+  status: "created" | "skipped" | "error";
   message: string;
 }
 
@@ -64,7 +79,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const dryRun = String(formData.get("dryRun") ?? "") === "true";
   const file = formData.get("file");
+
   if (!(file instanceof File)) {
     return NextResponse.json(
       { error: "Selecciona un archivo Excel (.xlsx)." },
@@ -113,7 +130,6 @@ export async function POST(request: NextRequest) {
     identification: -1,
     institutionalEmail: -1,
     role: -1,
-    department: -1,
   };
 
   const maxScan = Math.min(sheet.rowCount, 15);
@@ -128,8 +144,6 @@ export async function POST(request: NextRequest) {
       else if (h.includes("correo") || h.includes("email"))
         temp.institutionalEmail = colNum;
       else if (h === "rol" || h.startsWith("rol ")) temp.role = colNum;
-      else if (h.includes("departamento") || h.includes("area"))
-        temp.department = colNum;
     });
 
     if (
@@ -154,88 +168,205 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const results: BulkRowResult[] = [];
+  // Obtener todas las cédulas ya registradas en el sistema en una sola consulta
+  const { data: existingProfiles, error: existingErr } = await auth.admin
+    .from("profiles")
+    .select("identification");
+
+  if (existingErr) {
+    return NextResponse.json(
+      { error: "No se pudo verificar los usuarios existentes en el sistema." },
+      { status: 500 }
+    );
+  }
+
+  const existingIds = new Set(
+    (existingProfiles ?? [])
+      .map((p) => (p.identification ? normalizeIdentification(p.identification) : ""))
+      .filter(Boolean)
+  );
+
+  const seenInFile = new Map<string, number>();
+  const analyzedRows: AnalyzedExcelRow[] = [];
 
   for (let r = headerRowNumber + 1; r <= sheet.rowCount; r++) {
     const row = sheet.getRow(r);
     const fullName = readCellText(row.getCell(colIndex.fullName));
-    let identification = readCellText(row.getCell(colIndex.identification));
+    const identification = normalizeIdentification(
+      readCellText(row.getCell(colIndex.identification))
+    );
     const institutionalEmail = readCellText(
       row.getCell(colIndex.institutionalEmail)
-    );
+    ).toLowerCase();
     const rawRole = readCellText(row.getCell(colIndex.role));
-    const department =
-      colIndex.department > 0
-        ? readCellText(row.getCell(colIndex.department))
-        : "";
 
+    // Ignorar filas vacías (solo tienen índice N° prellenado)
     if (!fullName && !identification && !institutionalEmail && !rawRole) {
       continue;
     }
 
-    if (/^[1-9]\d{8}$/.test(identification)) {
-      identification = `0${identification}`;
-    }
-
     const parsedRole = parseRoleInput(rawRole);
-    if (!parsedRole) {
-      results.push({
-        rowNumber: r,
-        fullName,
-        identification,
-        institutionalEmail,
-        role: null,
-        status: "error",
-        message: rawRole
-          ? `Rol no reconocido: "${rawRole}".`
-          : "Falta seleccionar el Rol.",
-      });
-      continue;
-    }
-
-    const created = await createManagedUser(auth.admin, {
+    const errors = validateUserFields({
       fullName,
       identification,
       institutionalEmail,
       role: parsedRole,
-      department: department || undefined,
+      rawRole,
     });
 
-    if (created.ok) {
-      results.push({
-        rowNumber: r,
-        fullName: created.user.full_name,
-        identification: created.user.identification,
-        institutionalEmail: created.user.institutional_email ?? institutionalEmail,
-        role: created.user.role,
-        status: "created",
-        message: "Creado (clave inicial = cédula; cambio obligatorio al ingresar).",
-      });
-    } else {
-      results.push({
+    if (identification && seenInFile.has(identification)) {
+      errors.push(
+        `Cédula repetida dentro del documento (ya aparece en la fila ${seenInFile.get(
+          identification
+        )}).`
+      );
+    } else if (identification) {
+      seenInFile.set(identification, r);
+    }
+
+    if (errors.length > 0) {
+      analyzedRows.push({
         rowNumber: r,
         fullName,
         identification,
         institutionalEmail,
         role: parsedRole,
+        rawRole,
+        status: "invalid",
+        message: errors.join(" "),
+      });
+      continue;
+    }
+
+    if (existingIds.has(identification)) {
+      analyzedRows.push({
+        rowNumber: r,
+        fullName,
+        identification,
+        institutionalEmail,
+        role: parsedRole,
+        rawRole,
+        status: "existing",
+        message: "Ya existe en el sistema (se omitirá sin alterar).",
+      });
+      continue;
+    }
+
+    analyzedRows.push({
+      rowNumber: r,
+      fullName,
+      identification,
+      institutionalEmail,
+      role: parsedRole,
+      rawRole,
+      status: "valid_new",
+      message: "Válido — listo para registrar.",
+    });
+  }
+
+  if (analyzedRows.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "El archivo no contiene filas con datos de usuarios. Completa al menos un registro y vuelve a subirlo.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const newCount = analyzedRows.filter((r) => r.status === "valid_new").length;
+  const existingCount = analyzedRows.filter((r) => r.status === "existing").length;
+  const invalidCount = analyzedRows.filter((r) => r.status === "invalid").length;
+  const canImport = invalidCount === 0 && newCount > 0;
+
+  // MODO PREVISUALIZACIÓN / VALIDACIÓN PREVIA (sin registrar en BD)
+  if (dryRun) {
+    return NextResponse.json({
+      mode: "preview",
+      fileName: file.name,
+      totalRows: analyzedRows.length,
+      newCount,
+      existingCount,
+      invalidCount,
+      canImport,
+      rows: analyzedRows,
+    });
+  }
+
+  // MODO IMPORTACIÓN REAL: bloquear si hay cualquier error de validación
+  if (invalidCount > 0) {
+    return NextResponse.json(
+      {
+        error: `El documento tiene ${invalidCount} ${
+          invalidCount === 1 ? "fila con errores" : "filas con errores"
+        }. Revisa y corrige el archivo antes de subirlo.`,
+      },
+      { status: 400 }
+    );
+  }
+
+  if (newCount === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Todos los usuarios del documento ya existen en el sistema. No hay usuarios nuevos para registrar.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const results: ImportRowResult[] = [];
+
+  for (const row of analyzedRows) {
+    if (row.status === "existing") {
+      results.push({
+        rowNumber: row.rowNumber,
+        fullName: row.fullName,
+        identification: row.identification,
+        institutionalEmail: row.institutionalEmail,
+        role: row.role,
+        status: "skipped",
+        message: "Ya existía en el sistema (omitido sin cambios).",
+      });
+      continue;
+    }
+
+    if (!row.role) continue;
+
+    const created = await createManagedUser(auth.admin, {
+      fullName: row.fullName,
+      identification: row.identification,
+      institutionalEmail: row.institutionalEmail,
+      role: row.role,
+    });
+
+    if (created.ok) {
+      results.push({
+        rowNumber: row.rowNumber,
+        fullName: created.user.full_name,
+        identification: created.user.identification,
+        institutionalEmail:
+          created.user.institutional_email ?? row.institutionalEmail,
+        role: created.user.role,
+        status: "created",
+        message: "Registrado (clave inicial = cédula; cambio obligatorio al ingresar).",
+      });
+    } else {
+      results.push({
+        rowNumber: row.rowNumber,
+        fullName: row.fullName,
+        identification: row.identification,
+        institutionalEmail: row.institutionalEmail,
+        role: row.role,
         status: "error",
         message: created.error,
       });
     }
   }
 
-  if (results.length === 0) {
-    return NextResponse.json(
-      {
-        error:
-          "El archivo no contiene filas con datos de usuarios para importar.",
-      },
-      { status: 400 }
-    );
-  }
-
   const createdCount = results.filter((item) => item.status === "created").length;
-  const errorCount = results.length - createdCount;
+  const skippedCount = results.filter((item) => item.status === "skipped").length;
+  const errorCount = results.filter((item) => item.status === "error").length;
 
   try {
     await auth.admin.from("audit_logs").insert({
@@ -245,6 +376,7 @@ export async function POST(request: NextRequest) {
         file_name: file.name,
         total_processed: results.length,
         created_count: createdCount,
+        skipped_existing_count: skippedCount,
         error_count: errorCount,
       },
     });
@@ -253,8 +385,10 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({
+    mode: "import",
     totalProcessed: results.length,
     createdCount,
+    skippedCount,
     errorCount,
     results,
   });
