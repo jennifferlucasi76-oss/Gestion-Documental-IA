@@ -59,6 +59,16 @@ function formatAuditDetail(
   if (action === "DELETE_DOCUMENT") {
     return `Eliminado del repositorio: ${String(details.file_name ?? details.title ?? "documento")}`;
   }
+  if (action === "UPDATE_TAXONOMY") {
+    const op = String(details.operation ?? "");
+    const verb =
+      op === "create"
+        ? "Nueva categoría"
+        : op === "delete"
+        ? "Categoría eliminada"
+        : "Categoría actualizada";
+    return `${verb}: ${String(details.category_name ?? "—")}`;
+  }
   return "Evento registrado en bitácora";
 }
 

@@ -120,6 +120,10 @@ const AUDIT_ACTION_META: Record<
     label: "Documento eliminado",
     badgeClass: "bg-ue-crimson-soft text-ue-crimson border-ue-crimson/20",
   },
+  UPDATE_TAXONOMY: {
+    label: "Política / Taxonomía",
+    badgeClass: "bg-ue-gold-soft text-[#7A5900] border-ue-gold-dark/25",
+  },
 };
 
 export function RectorExecutiveDashboard({

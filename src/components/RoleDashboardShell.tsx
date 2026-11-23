@@ -48,7 +48,6 @@ const RECTOR_UPCOMING_ITEMS: Array<{
   label: string;
   icon: LucideIcon;
 }> = [
-  { id: "politicas", label: "Políticas y Taxonomía", icon: FileCheck2 },
   { id: "auditoria", label: "Cumplimiento y Auditoría", icon: ShieldCheck },
   { id: "ejecutiva", label: "Consulta Ejecutiva", icon: BarChart3 },
   { id: "evaluacion", label: "Evaluación del Prototipo", icon: ClipboardCheck },
@@ -63,7 +62,7 @@ export function RoleDashboardShell({
 }: {
   roleKey: UserRole;
   profile: AuthenticatedProfile;
-  activeNav?: "home" | "usuarios" | "busqueda";
+  activeNav?: "home" | "usuarios" | "busqueda" | "politicas";
   pageTitle?: string;
   children?: ReactNode;
 }) {
@@ -160,6 +159,28 @@ export function RoleDashboardShell({
                   Búsqueda Semántica IA
                 </Link>
               </li>
+
+              {roleKey === "rector" && (
+                <li>
+                  <Link
+                    href="/panel/rector/politicas"
+                    className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                      activeNav === "politicas"
+                        ? "bg-ue-crimson text-white shadow-sm shadow-ue-crimson/20"
+                        : "text-foreground/75 hover:bg-ue-crimson-soft/70 hover:text-ue-crimson"
+                    }`}
+                  >
+                    <FileCheck2
+                      className={`h-4 w-4 ${
+                        activeNav === "politicas"
+                          ? "text-ue-gold"
+                          : "text-ue-crimson/70"
+                      }`}
+                    />
+                    Políticas y Taxonomía
+                  </Link>
+                </li>
+              )}
 
               {roleKey === "rector"
                 ? RECTOR_UPCOMING_ITEMS.map((item) => {
