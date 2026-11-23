@@ -424,9 +424,9 @@ export function RectorExecutiveDashboard({
             </span>
           </div>
 
-          <div className="mt-4 overflow-x-auto">
+          <div className="mt-4 max-h-[300px] overflow-y-auto overflow-x-auto pr-1">
             <table className="w-full text-left text-xs">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-white">
                 <tr className="border-b border-ue-border uppercase tracking-wider text-ue-gray">
                   <th className="py-2.5 pr-3 font-semibold">Evento</th>
                   <th className="py-2.5 pr-3 font-semibold">Usuario</th>

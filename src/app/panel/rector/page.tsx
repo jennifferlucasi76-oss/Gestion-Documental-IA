@@ -78,7 +78,7 @@ async function RectorContent() {
       .from("audit_logs")
       .select("id, user_id, action, details, created_at")
       .order("created_at", { ascending: false })
-      .limit(8),
+      .limit(25),
   ]);
 
   const profiles = profilesRes.data ?? [];
