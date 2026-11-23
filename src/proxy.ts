@@ -5,10 +5,21 @@ import { getSupabaseEnv } from "@/lib/supabase/config";
 const PUBLIC_PATHS = ["/login", "/api/health"];
 
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const isPublicPath = PUBLIC_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`)
+  );
+
   const env = getSupabaseEnv();
 
-  // Si Supabase aún no está configurado, permitir vista previa sin bloquear.
+  // Siempre iniciar en /login si no hay configuración de Supabase.
   if (!env) {
+    if (!isPublicPath) {
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = "/login";
+      loginUrl.search = "";
+      return NextResponse.redirect(loginUrl);
+    }
     return NextResponse.next();
   }
 
@@ -39,15 +50,10 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-  const isPublicPath = PUBLIC_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
-
   if (!user && !isPublicPath) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
-    loginUrl.searchParams.set("next", pathname);
+    loginUrl.search = pathname !== "/" ? `?next=${encodeURIComponent(pathname)}` : "";
     return NextResponse.redirect(loginUrl);
   }
 
