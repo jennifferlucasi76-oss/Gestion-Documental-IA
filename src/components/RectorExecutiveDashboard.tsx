@@ -40,7 +40,7 @@ export interface AuditEventItem {
 
 export interface RectorDashboardData {
   dateLabel: string;
-  geminiConfigured: boolean;
+  aiConfigured: boolean;
   totalUsers: number;
   updatedPasswordCount: number;
   pendingPasswordCount: number;
@@ -160,18 +160,18 @@ export function RectorExecutiveDashboard({
             </div>
             <div
               className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${
-                data.geminiConfigured
+                data.aiConfigured
                   ? "border-emerald-600/20 bg-emerald-50/70 text-emerald-800"
                   : "border-ue-gold-dark/25 bg-ue-gold-soft/80 text-[#7A5900]"
               }`}
             >
               <span
                 className={`h-2 w-2 rounded-full ${
-                  data.geminiConfigured ? "bg-emerald-500" : "bg-amber-500"
+                  data.aiConfigured ? "bg-emerald-500" : "bg-amber-500"
                 }`}
               />
               <Sparkles className="h-3.5 w-3.5" />
-              {data.geminiConfigured ? "Motor IA Activo" : "Motor IA Pendiente"}
+              {data.aiConfigured ? "OpenAI IA Activa" : "Motor IA Pendiente"}
             </div>
           </div>
         </div>
@@ -557,7 +557,7 @@ export function RectorExecutiveDashboard({
               </div>
             )}
 
-            {!data.geminiConfigured && (
+            {!data.aiConfigured && (
               <div className="rounded-2xl border border-ue-gold-dark/25 bg-ue-gold-soft/75 p-4">
                 <div className="flex items-start gap-2.5">
                   <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-ue-gold-dark" />
@@ -566,9 +566,9 @@ export function RectorExecutiveDashboard({
                       Motor PLN y Embeddings pendiente
                     </p>
                     <p className="mt-1 text-xs leading-relaxed text-[#594300]/85">
-                      Agrega <code className="font-mono">GEMINI_API_KEY</code>{" "}
-                      para activar extracción automática de metadatos y búsqueda
-                      vectorial.
+                      Agrega <code className="font-mono">OPENAI_API_KEY</code>{" "}
+                      para activar clasificación automática, metadatos PLN y
+                      búsqueda vectorial.
                     </p>
                   </div>
                 </div>

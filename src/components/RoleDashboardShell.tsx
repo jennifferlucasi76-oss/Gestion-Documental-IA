@@ -43,6 +43,17 @@ const ICON_MAP: Record<RoleModuleCard["iconName"], LucideIcon> = {
   brain: Brain,
 };
 
+const RECTOR_UPCOMING_ITEMS: Array<{
+  id: string;
+  label: string;
+  icon: LucideIcon;
+}> = [
+  { id: "politicas", label: "Políticas y Taxonomía", icon: FileCheck2 },
+  { id: "auditoria", label: "Cumplimiento y Auditoría", icon: ShieldCheck },
+  { id: "ejecutiva", label: "Consulta Ejecutiva", icon: BarChart3 },
+  { id: "evaluacion", label: "Evaluación del Prototipo", icon: ClipboardCheck },
+];
+
 export function RoleDashboardShell({
   roleKey,
   profile,
@@ -52,7 +63,7 @@ export function RoleDashboardShell({
 }: {
   roleKey: UserRole;
   profile: AuthenticatedProfile;
-  activeNav?: "home" | "usuarios";
+  activeNav?: "home" | "usuarios" | "busqueda";
   pageTitle?: string;
   children?: ReactNode;
 }) {
@@ -130,22 +141,59 @@ export function RoleDashboardShell({
                 </li>
               )}
 
-              {config.modules.map((mod) => {
-                const Icon = ICON_MAP[mod.iconName];
-                return (
-                  <li key={mod.id}>
-                    <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-sm text-foreground/70">
-                      <span className="flex min-w-0 items-center gap-2.5">
-                        <Icon className="h-4 w-4 shrink-0 text-ue-crimson/70" />
-                        <span className="truncate">{mod.title}</span>
-                      </span>
-                      <span className="shrink-0 rounded-md bg-ue-crimson-soft px-1.5 py-0.5 text-[10px] font-medium text-ue-crimson">
-                        Pronto
-                      </span>
-                    </div>
-                  </li>
-                );
-              })}
+              <li>
+                <Link
+                  href="/panel/busqueda"
+                  className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                    activeNav === "busqueda"
+                      ? "bg-ue-crimson text-white shadow-sm shadow-ue-crimson/20"
+                      : "text-foreground/75 hover:bg-ue-crimson-soft/70 hover:text-ue-crimson"
+                  }`}
+                >
+                  <Sparkles
+                    className={`h-4 w-4 ${
+                      activeNav === "busqueda"
+                        ? "text-ue-gold"
+                        : "text-ue-crimson/70"
+                    }`}
+                  />
+                  Búsqueda Semántica IA
+                </Link>
+              </li>
+
+              {roleKey === "rector"
+                ? RECTOR_UPCOMING_ITEMS.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <li key={item.id}>
+                        <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-sm text-foreground/70">
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <Icon className="h-4 w-4 shrink-0 text-ue-crimson/70" />
+                            <span className="truncate">{item.label}</span>
+                          </span>
+                          <span className="shrink-0 rounded-md bg-ue-crimson-soft px-1.5 py-0.5 text-[10px] font-medium text-ue-crimson">
+                            Pronto
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })
+                : config.modules.map((mod) => {
+                    const Icon = ICON_MAP[mod.iconName];
+                    return (
+                      <li key={mod.id}>
+                        <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-sm text-foreground/70">
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <Icon className="h-4 w-4 shrink-0 text-ue-crimson/70" />
+                            <span className="truncate">{mod.title}</span>
+                          </span>
+                          <span className="shrink-0 rounded-md bg-ue-crimson-soft px-1.5 py-0.5 text-[10px] font-medium text-ue-crimson">
+                            Pronto
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
             </ul>
           </div>
         </nav>

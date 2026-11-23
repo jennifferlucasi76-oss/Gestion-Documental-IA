@@ -42,6 +42,20 @@ function formatAuditDetail(
   if (action === "DELETE_USER") {
     return "Cuenta institucional eliminada por administración";
   }
+  if (action === "UPLOAD") {
+    return `Ingesta IA • ${String(details.file_name ?? "documento")} → ${String(details.document_type ?? "Clasificado")}`;
+  }
+  if (action === "SEARCH") {
+    return `Consulta: "${String(details.query ?? "").slice(0, 48)}" (${Number(details.results_count ?? 0)} resultados • ${Number(details.latency_ms ?? 0)} ms)`;
+  }
+  if (action === "DOWNLOAD") {
+    return `Descarga de ${String(details.file_name ?? "documento")}`;
+  }
+  if (action === "VERIFY_HASH") {
+    return details.verified
+      ? `Integridad SHA-256 verificada (${String(details.file_name ?? "archivo")})`
+      : `Alerta: discrepancia SHA-256 en ${String(details.file_name ?? "archivo")}`;
+  }
   return "Evento registrado en bitácora";
 }
 
@@ -201,7 +215,7 @@ async function RectorContent() {
 
   const dashboardData: RectorDashboardData = {
     dateLabel: dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1),
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    aiConfigured: Boolean(process.env.OPENAI_API_KEY),
     totalUsers,
     updatedPasswordCount,
     pendingPasswordCount,
