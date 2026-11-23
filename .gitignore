@@ -32,6 +32,13 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# Datos y documentos reales sensibles de la unidad educativa (NUNCA subir a GitHub)
+/dataset_privado/
+/documentos_reales/
+*.pdf
+*.docx
 
 # vercel
 .vercel
