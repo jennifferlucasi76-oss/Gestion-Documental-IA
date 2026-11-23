@@ -144,7 +144,7 @@ create table if not exists public.audit_logs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references public.profiles(id) on delete set null,
   action text not null
-    check (action in ('UPLOAD', 'SEARCH', 'VIEW', 'DOWNLOAD', 'VERIFY_HASH', 'LOGIN', 'CREATE_USER', 'BULK_IMPORT_USERS', 'DELETE_USER', 'CHANGE_PASSWORD')),
+    check (action in ('UPLOAD', 'SEARCH', 'VIEW', 'DOWNLOAD', 'VERIFY_HASH', 'LOGIN', 'CREATE_USER', 'BULK_IMPORT_USERS', 'DELETE_USER', 'CHANGE_PASSWORD', 'DELETE_DOCUMENT')),
   document_id uuid references public.documents(id) on delete set null,
   details jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
@@ -229,6 +229,12 @@ create policy "Roles autorizados pueden subir documentos"
   with check (
     (select private.current_user_role()) in ('rector', 'secretaria', 'coordinador', 'docente')
   );
+
+drop policy if exists "Rector y secretaria eliminan documentos" on public.documents;
+create policy "Rector y secretaria eliminan documentos"
+  on public.documents for delete
+  to authenticated
+  using ((select private.current_user_role()) in ('rector', 'secretaria'));
 
 -- Políticas para document_metadata
 drop policy if exists "Lectura de metadatos ligada al acceso del documento" on public.document_metadata;
@@ -386,4 +392,13 @@ create policy "Roles autorizados suben archivos al bucket privado"
   with check (
     bucket_id = 'documentos'
     and (select private.current_user_role()) in ('rector', 'secretaria', 'coordinador', 'docente')
+  );
+
+drop policy if exists "Rector y secretaria eliminan archivos del bucket privado" on storage.objects;
+create policy "Rector y secretaria eliminan archivos del bucket privado"
+  on storage.objects for delete
+  to authenticated
+  using (
+    bucket_id = 'documentos'
+    and (select private.current_user_role()) in ('rector', 'secretaria')
   );

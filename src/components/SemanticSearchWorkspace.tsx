@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Sparkles,
   Tag,
+  Trash2,
   Upload,
   User,
 } from "lucide-react";
@@ -167,8 +168,12 @@ export function SemanticSearchWorkspace({
       { loading: boolean; verified?: boolean; error?: string }
     >
   >({});
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const canAssignConfidential =
+    userRole === "rector" || userRole === "secretaria";
+  const canDeleteDocuments =
     userRole === "rector" || userRole === "secretaria";
 
   async function refreshDocuments() {
@@ -386,6 +391,44 @@ export function SemanticSearchWorkspace({
         ...prev,
         [docId]: { loading: false, error: "Error de conexión" },
       }));
+    }
+  }
+
+  async function handleDeleteDocument(docId: string, title: string) {
+    if (
+      !window.confirm(
+        `¿Seguro que deseas eliminar permanentemente "${title}" de la base de datos, embeddings y Storage?`
+      )
+    ) {
+      return;
+    }
+
+    setDeleteError(null);
+    setDeletingId(docId);
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(docId)}`, {
+        method: "DELETE",
+      });
+      const payload = (await res.json()) as { ok?: boolean; error?: string };
+
+      if (!res.ok) {
+        setDeleteError(payload.error || "No se pudo eliminar el documento.");
+        return;
+      }
+
+      setDocuments((prev) => prev.filter((item) => item.id !== docId));
+      setSearchResults((prev) =>
+        prev ? prev.filter((item) => item.document_id !== docId) : prev
+      );
+      setRelatedMap((prev) => {
+        const next = { ...prev };
+        delete next[docId];
+        return next;
+      });
+    } catch {
+      setDeleteError("Error de conexión al intentar eliminar el documento.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -642,6 +685,26 @@ export function SemanticSearchWorkspace({
                               )}
                               SHA-256
                             </button>
+                            {canDeleteDocuments && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDeleteDocument(
+                                    item.document_id,
+                                    item.title
+                                  )
+                                }
+                                disabled={deletingId === item.document_id}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-ue-crimson/25 bg-ue-crimson-soft/60 px-3 py-1.5 text-xs font-semibold text-ue-crimson transition hover:bg-ue-crimson hover:text-white disabled:opacity-50"
+                              >
+                                {deletingId === item.document_id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                )}
+                                Eliminar
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -968,6 +1031,16 @@ export function SemanticSearchWorkspace({
           </div>
         </div>
 
+        {deleteError && (
+          <div
+            role="alert"
+            className="mt-4 flex items-start gap-2 rounded-xl border border-ue-crimson/25 bg-ue-crimson-soft px-3.5 py-2.5 text-xs font-medium text-ue-crimson-dark"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-ue-crimson" />
+            <span>{deleteError}</span>
+          </div>
+        )}
+
         {documents.length === 0 ? (
           <div className="mt-5 rounded-2xl border border-dashed border-ue-border bg-background p-8 text-center">
             <FileText className="mx-auto h-8 w-8 text-ue-gray" />
@@ -1059,6 +1132,24 @@ export function SemanticSearchWorkspace({
                             )}
                             {verifyState?.verified ? "Verificado" : "SHA-256"}
                           </button>
+                          {canDeleteDocuments && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDeleteDocument(doc.id, doc.title)
+                              }
+                              disabled={deletingId === doc.id}
+                              title="Eliminar documento permanentemente"
+                              className="inline-flex items-center gap-1 rounded-lg border border-ue-crimson/25 bg-ue-crimson-soft/60 px-2.5 py-1 text-[11px] font-semibold text-ue-crimson transition hover:bg-ue-crimson hover:text-white disabled:opacity-50"
+                            >
+                              {deletingId === doc.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                              Eliminar
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

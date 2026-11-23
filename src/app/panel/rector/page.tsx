@@ -56,6 +56,9 @@ function formatAuditDetail(
       ? `Integridad SHA-256 verificada (${String(details.file_name ?? "archivo")})`
       : `Alerta: discrepancia SHA-256 en ${String(details.file_name ?? "archivo")}`;
   }
+  if (action === "DELETE_DOCUMENT") {
+    return `Eliminado del repositorio: ${String(details.file_name ?? details.title ?? "documento")}`;
+  }
   return "Evento registrado en bitácora";
 }
 

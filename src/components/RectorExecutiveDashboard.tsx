@@ -116,6 +116,10 @@ const AUDIT_ACTION_META: Record<
     label: "Verificación SHA-256",
     badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-600/20",
   },
+  DELETE_DOCUMENT: {
+    label: "Documento eliminado",
+    badgeClass: "bg-ue-crimson-soft text-ue-crimson border-ue-crimson/20",
+  },
 };
 
 export function RectorExecutiveDashboard({
