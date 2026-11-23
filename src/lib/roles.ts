@@ -80,11 +80,17 @@ export const DEFAULT_DEPARTMENT_BY_ROLE: Record<UserRole, string> = {
 };
 
 export const EXCEL_ROLE_LABELS: Record<UserRole, string> = {
-  secretaria: "Secretario / Personal Administrativo",
+  secretaria: "Personal Administrativo",
   docente: "Docente",
   coordinador: "Coordinador de Área",
   rector: "Rector / Equipo Directivo",
 };
+
+export const ASSIGNABLE_USER_ROLES: Exclude<UserRole, "rector">[] = [
+  "secretaria",
+  "docente",
+  "coordinador",
+];
 
 /**
  * Normaliza texto de rol proveniente de Excel o formularios al valor interno de BD.

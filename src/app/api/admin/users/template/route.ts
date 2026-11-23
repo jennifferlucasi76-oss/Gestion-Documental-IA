@@ -1,15 +1,27 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { verifyRectorApiCaller } from "@/lib/supabase/admin";
-import { EXCEL_ROLE_LABELS } from "@/lib/roles";
+import { ASSIGNABLE_USER_ROLES, EXCEL_ROLE_LABELS } from "@/lib/roles";
 
-export async function GET() {
+const MIN_ROWS = 1;
+const MAX_ROWS = 500;
+const DEFAULT_ROWS = 20;
+
+export async function GET(request: NextRequest) {
   const auth = await verifyRectorApiCaller();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+
+  const rawRows = Number.parseInt(
+    request.nextUrl.searchParams.get("rows") ?? "",
+    10
+  );
+  const totalInputRows = Number.isFinite(rawRows)
+    ? Math.min(MAX_ROWS, Math.max(MIN_ROWS, rawRows))
+    : DEFAULT_ROWS;
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Unidad Educativa San José - SGDI-IA";
@@ -17,7 +29,7 @@ export async function GET() {
   workbook.subject = "Formato Oficial de Registro Masivo de Usuarios";
 
   // =========================================================================
-  // HOJA 1: REGISTRO DE USUARIOS (6 columnas limpias, sin columna de contraseña)
+  // HOJA 1: REGISTRO DE USUARIOS (5 columnas limpias: N°, Nombres, Cédula, Correo, Rol)
   // =========================================================================
   const sheet = workbook.addWorksheet("Registro de Usuarios", {
     views: [{ state: "frozen", ySplit: 6, showGridLines: false }],
@@ -31,18 +43,17 @@ export async function GET() {
 
   sheet.columns = [
     { key: "num", width: 8 },
-    { key: "nombres", width: 36 },
-    { key: "cedula", width: 19 },
-    { key: "correo", width: 36 },
-    { key: "rol", width: 38 },
-    { key: "departamento", width: 26 },
+    { key: "nombres", width: 38 },
+    { key: "cedula", width: 20 },
+    { key: "correo", width: 38 },
+    { key: "rol", width: 30 },
   ];
 
   // Banner superior institucional (Filas 1-4)
   for (let r = 1; r <= 4; r++) {
     const row = sheet.getRow(r);
     row.height = r === 1 ? 26 : r === 2 ? 22 : r === 3 ? 19 : 17;
-    for (let c = 1; c <= 6; c++) {
+    for (let c = 1; c <= 5; c++) {
       row.getCell(c).fill = {
         type: "pattern",
         pattern: "solid",
@@ -52,10 +63,10 @@ export async function GET() {
   }
 
   sheet.mergeCells("A1:A4");
-  sheet.mergeCells("B1:F1");
-  sheet.mergeCells("B2:F2");
-  sheet.mergeCells("B3:F3");
-  sheet.mergeCells("B4:F4");
+  sheet.mergeCells("B1:E1");
+  sheet.mergeCells("B2:E2");
+  sheet.mergeCells("B3:E3");
+  sheet.mergeCells("B4:E4");
 
   const titleCell = sheet.getCell("B1");
   titleCell.value = "UNIDAD EDUCATIVA SAN JOSÉ — GUAYAQUIL";
@@ -68,8 +79,7 @@ export async function GET() {
   titleCell.alignment = { vertical: "bottom", horizontal: "left" };
 
   const subtitleCell = sheet.getCell("B2");
-  subtitleCell.value =
-    "FORMATO OFICIAL DE REGISTRO MASIVO DE USUARIOS • SISTEMA DE GESTIÓN DOCUMENTAL (SGDI-IA)";
+  subtitleCell.value = `FORMATO OFICIAL DE REGISTRO MASIVO DE USUARIOS (${totalInputRows} REGISTROS) • SGDI-IA`;
   subtitleCell.font = {
     name: "Calibri",
     size: 10.5,
@@ -80,7 +90,7 @@ export async function GET() {
 
   const hintCell = sheet.getCell("B3");
   hintCell.value =
-    "Complete los datos desde la fila 7. Los campos marcados con (*) son obligatorios. Use la lista desplegable en la columna Rol.";
+    "Complete los datos desde la fila 7. En la columna Rol utilice la lista desplegable de cada fila.";
   hintCell.font = {
     name: "Calibri",
     size: 9.5,
@@ -91,7 +101,7 @@ export async function GET() {
 
   const passHintCell = sheet.getCell("B4");
   passHintCell.value =
-    "Seguridad: La contraseña inicial será automáticamente el número de cédula y deberá cambiarse obligatoriamente en el primer ingreso.";
+    "Seguridad: La contraseña inicial será automáticamente la cédula y el usuario deberá cambiarla obligatoriamente en su primer acceso.";
   passHintCell.font = {
     name: "Calibri",
     size: 9,
@@ -99,7 +109,7 @@ export async function GET() {
   };
   passHintCell.alignment = { vertical: "top", horizontal: "left" };
 
-  // Insertar escudo transparente en A1:A4 (celda con fondo blanco limpio para contraste)
+  // Escudo transparente en A1:A4
   try {
     const logoPath = path.join(process.cwd(), "public", "logo-ue-sanjose.png");
     const logoBuffer = await readFile(logoPath);
@@ -117,13 +127,13 @@ export async function GET() {
       ext: { width: 58, height: 69 },
     });
   } catch {
-    // Si no se encuentra el logo, continúa sin bloquear la generación del Excel.
+    // Continuar sin bloquear si falla la lectura del logo
   }
 
   // Fila 5: Franja dorada institucional (#F8D000)
   const goldRow = sheet.getRow(5);
   goldRow.height = 6;
-  for (let c = 1; c <= 6; c++) {
+  for (let c = 1; c <= 5; c++) {
     goldRow.getCell(c).fill = {
       type: "pattern",
       pattern: "solid",
@@ -138,7 +148,6 @@ export async function GET() {
     "Cédula *",
     "Correo Institucional *",
     "Rol *",
-    "Departamento / Área",
   ];
   const headerRow = sheet.getRow(6);
   headerRow.height = 28;
@@ -169,20 +178,27 @@ export async function GET() {
     };
   });
 
-  // Filas 7 a 56 (50 espacios estilizados listos para llenar)
-  const roleFormula = `"${Object.values(EXCEL_ROLE_LABELS).join(",")}"`;
-  const totalInputRows = 50;
+  // =========================================================================
+  // HOJA OCULTA DE CATÁLOGO PARA COMBOBOX COMPATIBLE CON EXCEL EN ESPAÑOL/INGLÉS
+  // =========================================================================
+  const catalogSheet = workbook.addWorksheet("Roles", { state: "hidden" });
+  const roleOptions = ASSIGNABLE_USER_ROLES.map((r) => EXCEL_ROLE_LABELS[r]);
+  roleOptions.forEach((label, idx) => {
+    catalogSheet.getCell(`A${idx + 1}`).value = label;
+  });
+  const roleListFormula = `=Roles!$A$1:$A$${roleOptions.length}`;
 
+  // Filas configurables (7 hasta 7 + totalInputRows - 1)
   for (let i = 0; i < totalInputRows; i++) {
     const rowNum = 7 + i;
     const row = sheet.getRow(rowNum);
-    row.height = 23;
+    row.height = 24;
     const isAlt = i % 2 === 1;
     const rowBg = isAlt ? "FFFDF7F7" : "FFFFFFFF";
 
     row.getCell(1).value = i + 1;
 
-    for (let c = 1; c <= 6; c++) {
+    for (let c = 1; c <= 5; c++) {
       const cell = row.getCell(c);
       cell.fill = {
         type: "pattern",
@@ -210,16 +226,20 @@ export async function GET() {
     // Formato Texto (@) en Cédula para conservar ceros iniciales (ej. 09...)
     row.getCell(3).numFmt = "@";
 
-    // Lista desplegable estricta en la columna Rol (Columna E)
+    // Combobox desplegable basado en rango (funciona en cualquier idioma de Excel)
     row.getCell(5).dataValidation = {
       type: "list",
       allowBlank: true,
-      formulae: [roleFormula],
+      formulae: [roleListFormula],
+      showInputMessage: true,
+      promptTitle: "Seleccionar Rol",
+      prompt:
+        "Despliegue la flecha y elija: Personal Administrativo, Docente o Coordinador de Área.",
       showErrorMessage: true,
       errorStyle: "stop",
       errorTitle: "Rol no válido",
       error:
-        "Seleccione uno de los roles institucionales de la lista desplegable.",
+        "Seleccione únicamente uno de los roles permitidos en la lista desplegable.",
     };
   }
 
@@ -229,7 +249,7 @@ export async function GET() {
   const guide = workbook.addWorksheet("Instrucciones y Roles", {
     views: [{ showGridLines: false }],
   });
-  guide.columns = [{ width: 32 }, { width: 22 }, { width: 66 }];
+  guide.columns = [{ width: 30 }, { width: 22 }, { width: 66 }];
 
   guide.mergeCells("A1:C1");
   const gTitle = guide.getCell("A1");
@@ -301,12 +321,7 @@ export async function GET() {
     [
       "Rol",
       "Obligatorio",
-      "Seleccione de la lista desplegable en la hoja 'Registro de Usuarios'.",
-    ],
-    [
-      "Departamento / Área",
-      "Opcional",
-      "Área o dependencia (si se omite, se asigna automáticamente según el rol).",
+      "Haga clic en la celda y seleccione desde el combobox: Personal Administrativo, Docente o Coordinador de Área.",
     ],
     [
       "Primer Inicio de Sesión",
@@ -315,24 +330,19 @@ export async function GET() {
     ],
     ["", "", ""],
     [
-      "Secretario / Personal Administrativo",
-      "Rol válido",
-      "Operador principal: digitalización, clasificación asistida por IA y despacho.",
+      "Personal Administrativo",
+      "Rol disponible",
+      "Secretario / Gestor de archivos: digitalización, clasificación asistida por IA y despacho.",
     ],
     [
       "Docente",
-      "Rol válido",
-      "Generador de entregables académicos, consulta autorizada y seguimiento DECE.",
+      "Rol disponible",
+      "Generador de entregables académicos, consulta autorizada y seguimiento estudiantil (DECE).",
     ],
     [
       "Coordinador de Área",
-      "Rol válido",
-      "Revisión y aprobación documental, consolidados y base de conocimiento del área.",
-    ],
-    [
-      "Rector / Equipo Directivo",
-      "Rol válido",
-      "Administrador del sistema, consulta ejecutiva, cumplimiento MINEDUC y políticas.",
+      "Rol disponible",
+      "Revisión y aprobación documental, consolidados departamentales y base de conocimiento.",
     ],
   ];
 
@@ -376,8 +386,7 @@ export async function GET() {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition":
-        'attachment; filename="Formato_Registro_Usuarios_UE_San_Jose.xlsx"',
+      "Content-Disposition": `attachment; filename="Formato_Registro_Usuarios_UE_San_Jose_${totalInputRows}.xlsx"`,
       "Cache-Control": "no-store",
     },
   });

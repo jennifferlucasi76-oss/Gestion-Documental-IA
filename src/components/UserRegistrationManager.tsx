@@ -15,7 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import {
-  DEFAULT_DEPARTMENT_BY_ROLE,
+  ASSIGNABLE_USER_ROLES,
   EXCEL_ROLE_LABELS,
   type UserRole,
 } from "@/lib/roles";
@@ -57,7 +57,7 @@ const ROLE_BADGE_STYLES: Record<UserRole, string> = {
 
 const ROLE_SHORT_LABELS: Record<UserRole, string> = {
   rector: "Rector / Directivo",
-  secretaria: "Secretaría / Admin",
+  secretaria: "Personal Administrativo",
   coordinador: "Coordinador de Área",
   docente: "Docente",
 };
@@ -74,17 +74,17 @@ export function UserRegistrationManager({
   );
   const [users, setUsers] = useState<DirectoryUser[]>(initialUsers);
 
-  // Estado formulario individual (sin campo contraseña: clave por defecto = cédula)
+  // Estado formulario individual (sin contraseña ni departamento: clave por defecto = cédula)
   const [fullName, setFullName] = useState("");
   const [identification, setIdentification] = useState("");
   const [institutionalEmail, setInstitutionalEmail] = useState("");
   const [role, setRole] = useState<UserRole>("docente");
-  const [department, setDepartment] = useState("");
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
   // Estado carga masiva Excel
+  const [templateRows, setTemplateRows] = useState<number>(20);
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [uploadingBulk, setUploadingBulk] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
@@ -118,7 +118,6 @@ export function UserRegistrationManager({
           identification,
           institutionalEmail,
           role,
-          department: department.trim() || DEFAULT_DEPARTMENT_BY_ROLE[role],
         }),
       });
 
@@ -138,7 +137,6 @@ export function UserRegistrationManager({
       setFullName("");
       setIdentification("");
       setInstitutionalEmail("");
-      setDepartment("");
       await refreshUsers();
     } catch {
       setFormError("Error de conexión al intentar registrar el usuario.");
@@ -383,32 +381,12 @@ export function UserRegistrationManager({
                   onChange={(e) => setRole(e.target.value as UserRole)}
                   className="w-full rounded-xl border border-ue-border bg-background px-3.5 py-2.5 text-sm text-foreground outline-none transition focus:border-ue-crimson focus:bg-white focus:ring-2 focus:ring-ue-crimson/15"
                 >
-                  <option value="secretaria">
-                    {EXCEL_ROLE_LABELS.secretaria}
-                  </option>
-                  <option value="docente">{EXCEL_ROLE_LABELS.docente}</option>
-                  <option value="coordinador">
-                    {EXCEL_ROLE_LABELS.coordinador}
-                  </option>
-                  <option value="rector">{EXCEL_ROLE_LABELS.rector}</option>
+                  {ASSIGNABLE_USER_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {EXCEL_ROLE_LABELS[r]}
+                    </option>
+                  ))}
                 </select>
-              </div>
-
-              <div className="sm:col-span-2">
-                <label
-                  htmlFor="reg-dept"
-                  className="mb-1.5 block text-xs font-semibold text-foreground/80"
-                >
-                  Departamento / Área (opcional)
-                </label>
-                <input
-                  id="reg-dept"
-                  type="text"
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  placeholder={DEFAULT_DEPARTMENT_BY_ROLE[role]}
-                  className="w-full rounded-xl border border-ue-border bg-background px-3.5 py-2.5 text-sm text-foreground outline-none transition focus:border-ue-crimson focus:bg-white focus:ring-2 focus:ring-ue-crimson/15"
-                />
               </div>
 
               <div className="sm:col-span-2 flex justify-end pt-1">
@@ -438,7 +416,7 @@ export function UserRegistrationManager({
         {activeTab === "masivo" && (
           <div className="mt-5 space-y-5">
             <div className="grid gap-4 lg:grid-cols-2">
-              {/* Paso 1: Descargar plantilla */}
+              {/* Paso 1: Descargar plantilla con cantidad configurable */}
               <div className="flex flex-col justify-between rounded-2xl border border-ue-border bg-background p-5">
                 <div>
                   <span className="inline-flex rounded-full bg-ue-gold-soft px-2.5 py-0.5 text-[11px] font-bold text-[#7A5900]">
@@ -453,18 +431,67 @@ export function UserRegistrationManager({
                     <strong>
                       Nombres Completos, Cédula, Correo Institucional y Rol
                     </strong>{" "}
-                    (con lista desplegable), sin columna de contraseña.
+                    (combobox desplegable con Personal Administrativo, Docente y
+                    Coordinador de Área).
                   </p>
+
+                  <div className="mt-4 rounded-xl border border-ue-border bg-white p-3.5">
+                    <label
+                      htmlFor="template-rows"
+                      className="block text-xs font-semibold text-foreground/85"
+                    >
+                      Número de usuarios en la plantilla
+                    </label>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <input
+                        id="template-rows"
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={templateRows}
+                        onChange={(e) => {
+                          const parsed = Number.parseInt(e.target.value, 10);
+                          if (Number.isNaN(parsed)) {
+                            setTemplateRows(1);
+                          } else {
+                            setTemplateRows(Math.min(500, Math.max(1, parsed)));
+                          }
+                        }}
+                        className="w-24 rounded-lg border border-ue-border bg-background px-3 py-1.5 text-center text-sm font-bold text-ue-crimson outline-none focus:border-ue-crimson focus:bg-white focus:ring-2 focus:ring-ue-crimson/15"
+                      />
+                      <div className="flex flex-wrap gap-1.5">
+                        {[10, 25, 50, 100].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setTemplateRows(preset)}
+                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                              templateRows === preset
+                                ? "bg-ue-crimson text-white"
+                                : "border border-ue-border bg-background text-foreground/75 hover:border-ue-crimson/40 hover:text-ue-crimson"
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-ue-gray">
+                      Se generarán exactamente {templateRows} filas numeradas con
+                      lista desplegable en la columna Rol (máx. 500).
+                    </p>
+                  </div>
                 </div>
 
                 <div className="mt-5">
                   <a
-                    href="/api/admin/users/template"
-                    download="Formato_Registro_Usuarios_UE_San_Jose.xlsx"
+                    href={`/api/admin/users/template?rows=${templateRows}`}
+                    download={`Formato_Registro_Usuarios_UE_San_Jose_${templateRows}.xlsx`}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-ue-crimson px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-ue-crimson-dark"
                   >
                     <Download className="h-4 w-4 text-ue-gold" />
-                    Descargar plantilla Excel (.xlsx)
+                    Descargar plantilla ({templateRows}{" "}
+                    {templateRows === 1 ? "usuario" : "usuarios"})
                   </a>
                 </div>
               </div>
@@ -652,7 +679,7 @@ export function UserRegistrationManager({
             >
               <option value="all">Todos los roles</option>
               <option value="rector">Rector / Directivo</option>
-              <option value="secretaria">Secretaría / Admin</option>
+              <option value="secretaria">Personal Administrativo</option>
               <option value="docente">Docente</option>
               <option value="coordinador">Coordinador de Área</option>
             </select>
