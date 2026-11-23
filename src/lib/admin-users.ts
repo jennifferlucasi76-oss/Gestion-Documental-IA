@@ -12,7 +12,6 @@ export interface CreateUserInput {
   institutionalEmail: string;
   role: UserRole;
   department?: string;
-  password?: string;
 }
 
 export interface ManagedUserRecord {
@@ -22,6 +21,7 @@ export interface ManagedUserRecord {
   institutional_email: string | null;
   role: UserRole;
   department: string;
+  must_change_password: boolean;
   created_at: string;
 }
 
@@ -35,7 +35,7 @@ export async function createManagedUser(
   admin: SupabaseClient,
   input: CreateUserInput
 ): Promise<
-  | { ok: true; user: ManagedUserRecord; usedDefaultPassword: boolean }
+  | { ok: true; user: ManagedUserRecord }
   | { ok: false; error: string }
 > {
   const fullName = input.fullName.trim();
@@ -43,9 +43,6 @@ export async function createManagedUser(
   const institutionalEmail = input.institutionalEmail.trim().toLowerCase();
   const department =
     input.department?.trim() || DEFAULT_DEPARTMENT_BY_ROLE[input.role];
-  const rawPassword = input.password?.trim() || "";
-  const usedDefaultPassword = rawPassword.length === 0;
-  const password = usedDefaultPassword ? identification : rawPassword;
 
   if (fullName.length < 3) {
     return {
@@ -69,13 +66,6 @@ export async function createManagedUser(
     };
   }
 
-  if (password.length < 6) {
-    return {
-      ok: false,
-      error: "La contraseña inicial debe tener al menos 6 caracteres.",
-    };
-  }
-
   // Verificar si ya existe la cédula en profiles
   const { data: existingProfile } = await admin
     .from("profiles")
@@ -92,10 +82,11 @@ export async function createManagedUser(
 
   const authEmail = identificationToAuthEmail(identification);
 
+  // Contraseña inicial por defecto = número de cédula (obligatorio cambiar en el primer ingreso)
   const { data: createdAuth, error: createErr } =
     await admin.auth.admin.createUser({
       email: authEmail,
-      password,
+      password: identification,
       email_confirm: true,
       user_metadata: {
         identification,
@@ -124,14 +115,14 @@ export async function createManagedUser(
       institutional_email: institutionalEmail,
       role: input.role,
       department,
+      must_change_password: true,
     })
     .select(
-      "id, identification, full_name, institutional_email, role, department, created_at"
+      "id, identification, full_name, institutional_email, role, department, must_change_password, created_at"
     )
     .single();
 
   if (profileErr || !profile) {
-    // Revertir usuario en Auth para mantener consistencia
     await admin.auth.admin.deleteUser(createdAuth.user.id);
     return {
       ok: false,
@@ -144,6 +135,5 @@ export async function createManagedUser(
   return {
     ok: true,
     user: profile as ManagedUserRecord,
-    usedDefaultPassword,
   };
 }

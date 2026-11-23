@@ -12,7 +12,7 @@ export async function GET() {
   const { data, error } = await auth.admin
     .from("profiles")
     .select(
-      "id, identification, full_name, institutional_email, role, department, created_at"
+      "id, identification, full_name, institutional_email, role, department, must_change_password, created_at"
     )
     .order("created_at", { ascending: false });
 
@@ -53,7 +53,6 @@ export async function POST(request: NextRequest) {
     institutionalEmail: String(body.institutionalEmail ?? ""),
     role,
     department: body.department ? String(body.department) : undefined,
-    password: body.password ? String(body.password) : undefined,
   });
 
   if (!result.ok) {
@@ -74,13 +73,7 @@ export async function POST(request: NextRequest) {
     // No bloquear por bitácora
   }
 
-  return NextResponse.json(
-    {
-      user: result.user,
-      usedDefaultPassword: result.usedDefaultPassword,
-    },
-    { status: 201 }
-  );
+  return NextResponse.json({ user: result.user }, { status: 201 });
 }
 
 export async function DELETE(request: NextRequest) {

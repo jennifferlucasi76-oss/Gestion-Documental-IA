@@ -17,7 +17,7 @@ export async function GET() {
   workbook.subject = "Formato Oficial de Registro Masivo de Usuarios";
 
   // =========================================================================
-  // HOJA 1: REGISTRO DE USUARIOS
+  // HOJA 1: REGISTRO DE USUARIOS (6 columnas limpias, sin columna de contraseña)
   // =========================================================================
   const sheet = workbook.addWorksheet("Registro de Usuarios", {
     views: [{ state: "frozen", ySplit: 6, showGridLines: false }],
@@ -31,19 +31,18 @@ export async function GET() {
 
   sheet.columns = [
     { key: "num", width: 8 },
-    { key: "nombres", width: 34 },
-    { key: "cedula", width: 18 },
-    { key: "correo", width: 34 },
-    { key: "rol", width: 36 },
-    { key: "departamento", width: 25 },
-    { key: "password", width: 25 },
+    { key: "nombres", width: 36 },
+    { key: "cedula", width: 19 },
+    { key: "correo", width: 36 },
+    { key: "rol", width: 38 },
+    { key: "departamento", width: 26 },
   ];
 
   // Banner superior institucional (Filas 1-4)
   for (let r = 1; r <= 4; r++) {
     const row = sheet.getRow(r);
-    row.height = r === 1 ? 26 : r === 2 ? 22 : r === 3 ? 19 : 16;
-    for (let c = 1; c <= 7; c++) {
+    row.height = r === 1 ? 26 : r === 2 ? 22 : r === 3 ? 19 : 17;
+    for (let c = 1; c <= 6; c++) {
       row.getCell(c).fill = {
         type: "pattern",
         pattern: "solid",
@@ -53,10 +52,10 @@ export async function GET() {
   }
 
   sheet.mergeCells("A1:A4");
-  sheet.mergeCells("B1:G1");
-  sheet.mergeCells("B2:G2");
-  sheet.mergeCells("B3:G3");
-  sheet.mergeCells("B4:G4");
+  sheet.mergeCells("B1:F1");
+  sheet.mergeCells("B2:F2");
+  sheet.mergeCells("B3:F3");
+  sheet.mergeCells("B4:F4");
 
   const titleCell = sheet.getCell("B1");
   titleCell.value = "UNIDAD EDUCATIVA SAN JOSÉ — GUAYAQUIL";
@@ -92,7 +91,7 @@ export async function GET() {
 
   const passHintCell = sheet.getCell("B4");
   passHintCell.value =
-    "Nota: Si deja vacía la Contraseña Inicial, el sistema asignará automáticamente el número de Cédula como contraseña temporal.";
+    "Seguridad: La contraseña inicial será automáticamente el número de cédula y deberá cambiarse obligatoriamente en el primer ingreso.";
   passHintCell.font = {
     name: "Calibri",
     size: 9,
@@ -124,7 +123,7 @@ export async function GET() {
   // Fila 5: Franja dorada institucional (#F8D000)
   const goldRow = sheet.getRow(5);
   goldRow.height = 6;
-  for (let c = 1; c <= 7; c++) {
+  for (let c = 1; c <= 6; c++) {
     goldRow.getCell(c).fill = {
       type: "pattern",
       pattern: "solid",
@@ -140,7 +139,6 @@ export async function GET() {
     "Correo Institucional *",
     "Rol *",
     "Departamento / Área",
-    "Contraseña Inicial",
   ];
   const headerRow = sheet.getRow(6);
   headerRow.height = 28;
@@ -184,7 +182,7 @@ export async function GET() {
 
     row.getCell(1).value = i + 1;
 
-    for (let c = 1; c <= 7; c++) {
+    for (let c = 1; c <= 6; c++) {
       const cell = row.getCell(c);
       cell.fill = {
         type: "pattern",
@@ -209,9 +207,8 @@ export async function GET() {
       };
     }
 
-    // Formato Texto (@) en Cédula y Contraseña para conservar ceros iniciales (ej. 09...)
+    // Formato Texto (@) en Cédula para conservar ceros iniciales (ej. 09...)
     row.getCell(3).numFmt = "@";
-    row.getCell(7).numFmt = "@";
 
     // Lista desplegable estricta en la columna Rol (Columna E)
     row.getCell(5).dataValidation = {
@@ -232,54 +229,116 @@ export async function GET() {
   const guide = workbook.addWorksheet("Instrucciones y Roles", {
     views: [{ showGridLines: false }],
   });
-  guide.columns = [
-    { width: 32 },
-    { width: 22 },
-    { width: 64 },
-  ];
+  guide.columns = [{ width: 32 }, { width: 22 }, { width: 66 }];
 
   guide.mergeCells("A1:C1");
   const gTitle = guide.getCell("A1");
   gTitle.value = "GUÍA DE LLENADO — REGISTRO MASIVO DE USUARIOS (UE SAN JOSÉ)";
-  gTitle.font = { name: "Calibri", size: 13, bold: true, color: { argb: "FFFFFFFF" } };
-  gTitle.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF981018" } };
+  gTitle.font = {
+    name: "Calibri",
+    size: 13,
+    bold: true,
+    color: { argb: "FFFFFFFF" },
+  };
+  gTitle.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF981018" },
+  };
   gTitle.alignment = { vertical: "middle", horizontal: "left" };
   guide.getRow(1).height = 30;
 
   const gGold = guide.getRow(2);
   gGold.height = 5;
   for (let c = 1; c <= 3; c++) {
-    gGold.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8D000" } };
+    gGold.getCell(c).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF8D000" },
+    };
   }
 
-  const guideHeaders = ["Campo / Rol", "Requisito", "Descripción y formato esperado"];
+  const guideHeaders = [
+    "Campo / Rol",
+    "Requisito",
+    "Descripción y política de acceso",
+  ];
   const gHeaderRow = guide.getRow(4);
   gHeaderRow.height = 24;
   guideHeaders.forEach((h, i) => {
     const cell = gHeaderRow.getCell(i + 1);
     cell.value = h;
-    cell.font = { name: "Calibri", size: 10.5, bold: true, color: { argb: "FFFFFFFF" } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7A0C13" } };
+    cell.font = {
+      name: "Calibri",
+      size: 10.5,
+      bold: true,
+      color: { argb: "FFFFFFFF" },
+    };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF7A0C13" },
+    };
     cell.alignment = { vertical: "middle", horizontal: "left" };
   });
 
   const rowsData: [string, string, string][] = [
-    ["Nombres Completos", "Obligatorio", "Apellidos y nombres del colaborador (ej. María Fernanda Torres López)."],
-    ["Cédula", "Obligatorio", "Número de identificación único (ej. 0912345678). Será el usuario para iniciar sesión."],
-    ["Correo Institucional", "Obligatorio", "Correo oficial del usuario (ej. mtorres@uesanjose.edu.ec)."],
-    ["Rol", "Obligatorio", "Seleccione de la lista desplegable en la hoja 'Registro de Usuarios'."],
-    ["Departamento / Área", "Opcional", "Área o dependencia (si se omite, se asigna automáticamente según el rol)."],
-    ["Contraseña Inicial", "Opcional", "Mínimo 6 caracteres. Si se deja vacía, se asigna la misma Cédula como contraseña inicial."],
+    [
+      "Nombres Completos",
+      "Obligatorio",
+      "Apellidos y nombres del colaborador (ej. María Fernanda Torres López).",
+    ],
+    [
+      "Cédula",
+      "Obligatorio",
+      "Número de identificación único (ej. 0912345678). Será el usuario y la contraseña inicial temporal.",
+    ],
+    [
+      "Correo Institucional",
+      "Obligatorio",
+      "Correo oficial del usuario (ej. mtorres@uesanjose.edu.ec).",
+    ],
+    [
+      "Rol",
+      "Obligatorio",
+      "Seleccione de la lista desplegable en la hoja 'Registro de Usuarios'.",
+    ],
+    [
+      "Departamento / Área",
+      "Opcional",
+      "Área o dependencia (si se omite, se asigna automáticamente según el rol).",
+    ],
+    [
+      "Primer Inicio de Sesión",
+      "Política de seguridad",
+      "Al ingresar por primera vez con su cédula, el sistema obligará a crear una contraseña segura (mín. 8 caracteres, mayúsculas, minúsculas, números y símbolos).",
+    ],
     ["", "", ""],
-    ["Secretario / Personal Administrativo", "Rol válido", "Operador principal: digitalización, clasificación asistida por IA y despacho."],
-    ["Docente", "Rol válido", "Generador de entregables académicos, consulta autorizada y seguimiento DECE."],
-    ["Coordinador de Área", "Rol válido", "Revisión y aprobación documental, consolidados y base de conocimiento del área."],
-    ["Rector / Equipo Directivo", "Rol válido", "Administrador del sistema, consulta ejecutiva, cumplimiento MINEDUC y políticas."],
+    [
+      "Secretario / Personal Administrativo",
+      "Rol válido",
+      "Operador principal: digitalización, clasificación asistida por IA y despacho.",
+    ],
+    [
+      "Docente",
+      "Rol válido",
+      "Generador de entregables académicos, consulta autorizada y seguimiento DECE.",
+    ],
+    [
+      "Coordinador de Área",
+      "Rol válido",
+      "Revisión y aprobación documental, consolidados y base de conocimiento del área.",
+    ],
+    [
+      "Rector / Equipo Directivo",
+      "Rol válido",
+      "Administrador del sistema, consulta ejecutiva, cumplimiento MINEDUC y políticas.",
+    ],
   ];
 
   rowsData.forEach((entry, idx) => {
     const r = guide.getRow(5 + idx);
-    r.height = entry[0] === "" ? 10 : 22;
+    r.height = entry[0] === "" ? 10 : 25;
     entry.forEach((val, cIdx) => {
       const cell = r.getCell(cIdx + 1);
       cell.value = val;
@@ -289,7 +348,11 @@ export async function GET() {
         bold: cIdx === 0,
         color: { argb: cIdx === 0 ? "FF7A0C13" : "FF1F1718" },
       };
-      cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+      cell.alignment = {
+        vertical: "middle",
+        horizontal: "left",
+        wrapText: true,
+      };
       if (entry[0] !== "") {
         cell.fill = {
           type: "pattern",

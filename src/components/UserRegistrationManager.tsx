@@ -5,9 +5,8 @@ import {
   AlertCircle,
   CheckCircle2,
   Download,
-  Eye,
-  EyeOff,
   FileSpreadsheet,
+  KeyRound,
   Loader2,
   Search,
   Trash2,
@@ -28,6 +27,7 @@ export interface DirectoryUser {
   institutional_email: string | null;
   role: UserRole;
   department: string;
+  must_change_password: boolean;
   created_at: string;
 }
 
@@ -74,14 +74,12 @@ export function UserRegistrationManager({
   );
   const [users, setUsers] = useState<DirectoryUser[]>(initialUsers);
 
-  // Estado formulario individual
+  // Estado formulario individual (sin campo contraseña: clave por defecto = cédula)
   const [fullName, setFullName] = useState("");
   const [identification, setIdentification] = useState("");
   const [institutionalEmail, setInstitutionalEmail] = useState("");
   const [role, setRole] = useState<UserRole>("docente");
   const [department, setDepartment] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
@@ -121,13 +119,11 @@ export function UserRegistrationManager({
           institutionalEmail,
           role,
           department: department.trim() || DEFAULT_DEPARTMENT_BY_ROLE[role],
-          password: password.trim() || undefined,
         }),
       });
 
       const payload = (await res.json()) as {
         user?: DirectoryUser;
-        usedDefaultPassword?: boolean;
         error?: string;
       };
 
@@ -137,15 +133,12 @@ export function UserRegistrationManager({
       }
 
       setFormSuccess(
-        payload.usedDefaultPassword
-          ? `Usuario ${payload.user?.full_name} registrado correctamente. Contraseña inicial asignada: su cédula (${payload.user?.identification}).`
-          : `Usuario ${payload.user?.full_name} registrado correctamente con la contraseña indicada.`
+        `Usuario ${payload.user?.full_name} registrado correctamente. Su clave inicial es su cédula (${payload.user?.identification}) y deberá cambiarla en su primer ingreso.`
       );
       setFullName("");
       setIdentification("");
       setInstitutionalEmail("");
       setDepartment("");
-      setPassword("");
       await refreshUsers();
     } catch {
       setFormError("Error de conexión al intentar registrar el usuario.");
@@ -214,9 +207,12 @@ export function UserRegistrationManager({
 
     setDeletingId(user.id);
     try {
-      const res = await fetch(`/api/admin/users?id=${encodeURIComponent(user.id)}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/admin/users?id=${encodeURIComponent(user.id)}`,
+        {
+          method: "DELETE",
+        }
+      );
       if (res.ok) {
         setUsers((prev) => prev.filter((item) => item.id !== user.id));
       }
@@ -280,9 +276,21 @@ export function UserRegistrationManager({
           </div>
         </div>
 
+        {/* Nota de política de contraseña inicial */}
+        <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-ue-gold-dark/25 bg-ue-gold-soft/75 px-4 py-3 text-xs text-[#594300]">
+          <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-ue-gold-dark" />
+          <p className="leading-relaxed">
+            <strong>Política de primer acceso:</strong> al crear cualquier usuario
+            (individual o por Excel), su contraseña inicial será automáticamente
+            su <strong>número de cédula</strong>. Al iniciar sesión por primera
+            vez, el sistema le pedirá obligatoriamente definir una contraseña
+            segura.
+          </p>
+        </div>
+
         {/* MEDIO 1: REGISTRO INDIVIDUAL */}
         {activeTab === "individual" && (
-          <div className="mt-6">
+          <div className="mt-5">
             {formError && (
               <div
                 role="alert"
@@ -386,7 +394,7 @@ export function UserRegistrationManager({
                 </select>
               </div>
 
-              <div>
+              <div className="sm:col-span-2">
                 <label
                   htmlFor="reg-dept"
                   className="mb-1.5 block text-xs font-semibold text-foreground/80"
@@ -403,44 +411,7 @@ export function UserRegistrationManager({
                 />
               </div>
 
-              <div>
-                <label
-                  htmlFor="reg-pass"
-                  className="mb-1.5 block text-xs font-semibold text-foreground/80"
-                >
-                  Contraseña inicial (opcional)
-                </label>
-                <div className="relative">
-                  <input
-                    id="reg-pass"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Vacío = usa la cédula como clave inicial"
-                    className="w-full rounded-xl border border-ue-border bg-background py-2.5 pl-3.5 pr-10 text-sm text-foreground outline-none transition focus:border-ue-crimson focus:bg-white focus:ring-2 focus:ring-ue-crimson/15"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((prev) => !prev)}
-                    aria-label={
-                      showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
-                    }
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-ue-gray hover:text-ue-crimson"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-2">
-                <p className="text-xs text-ue-gray">
-                  El usuario ingresará al sistema utilizando su{" "}
-                  <strong className="text-foreground">número de cédula</strong>.
-                </p>
+              <div className="sm:col-span-2 flex justify-end pt-1">
                 <button
                   type="submit"
                   disabled={creating}
@@ -465,7 +436,7 @@ export function UserRegistrationManager({
 
         {/* MEDIO 2: CARGA MASIVA POR EXCEL */}
         {activeTab === "masivo" && (
-          <div className="mt-6 space-y-5">
+          <div className="mt-5 space-y-5">
             <div className="grid gap-4 lg:grid-cols-2">
               {/* Paso 1: Descargar plantilla */}
               <div className="flex flex-col justify-between rounded-2xl border border-ue-border bg-background p-5">
@@ -477,13 +448,12 @@ export function UserRegistrationManager({
                     Descarga el formato oficial de Excel
                   </h3>
                   <p className="mt-1.5 text-xs leading-relaxed text-foreground/70">
-                    Plantilla institucional estilizada con el escudo de la Unidad
-                    Educativa San José, columnas de{" "}
+                    Plantilla institucional con el escudo de la Unidad Educativa
+                    San José y las columnas de{" "}
                     <strong>
                       Nombres Completos, Cédula, Correo Institucional y Rol
                     </strong>{" "}
-                    (con lista desplegable), protección de ceros iniciales en
-                    cédulas y hoja de instrucciones.
+                    (con lista desplegable), sin columna de contraseña.
                   </p>
                 </div>
 
@@ -512,9 +482,9 @@ export function UserRegistrationManager({
                     Sube el archivo completado
                   </h3>
                   <p className="mt-1.5 text-xs leading-relaxed text-foreground/70">
-                    El sistema validará cada fila, creará las cuentas en Supabase
-                    con su rol asignado y mostrará el detalle del proceso. Si la
-                    contraseña inicial está vacía, se asignará la cédula.
+                    Cada usuario se creará con su cédula como contraseña inicial
+                    temporal y se le exigirá cambiarla al ingresar por primera
+                    vez.
                   </p>
 
                   <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-ue-crimson/30 bg-white px-4 py-5 text-center transition hover:border-ue-crimson hover:bg-ue-crimson-soft/30">
@@ -697,7 +667,7 @@ export function UserRegistrationManager({
                 <th className="py-3 pr-4 font-semibold">Cédula</th>
                 <th className="py-3 pr-4 font-semibold">Correo Institucional</th>
                 <th className="py-3 pr-4 font-semibold">Rol</th>
-                <th className="py-3 pr-4 font-semibold">Departamento</th>
+                <th className="py-3 pr-4 font-semibold">Clave</th>
                 <th className="py-3 text-right font-semibold">Acciones</th>
               </tr>
             </thead>
@@ -730,8 +700,16 @@ export function UserRegistrationManager({
                         {ROLE_SHORT_LABELS[u.role]}
                       </span>
                     </td>
-                    <td className="py-3 pr-4 text-xs text-foreground/75">
-                      {u.department}
+                    <td className="py-3 pr-4">
+                      {u.must_change_password ? (
+                        <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 border border-amber-500/25">
+                          Pendiente cambio
+                        </span>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-500/20">
+                          Actualizada
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 text-right">
                       {u.id === currentUserId ? (

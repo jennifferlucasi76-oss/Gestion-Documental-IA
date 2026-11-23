@@ -46,7 +46,6 @@ interface BulkRowResult {
   role: UserRole | null;
   status: "created" | "error";
   message: string;
-  usedDefaultPassword?: boolean;
 }
 
 export async function POST(request: NextRequest) {
@@ -108,7 +107,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Localizar fila de encabezados dinámicamente (permite banner superior en la plantilla)
   let headerRowNumber = -1;
   const colIndex = {
     fullName: -1,
@@ -116,7 +114,6 @@ export async function POST(request: NextRequest) {
     institutionalEmail: -1,
     role: -1,
     department: -1,
-    password: -1,
   };
 
   const maxScan = Math.min(sheet.rowCount, 15);
@@ -133,8 +130,6 @@ export async function POST(request: NextRequest) {
       else if (h === "rol" || h.startsWith("rol ")) temp.role = colNum;
       else if (h.includes("departamento") || h.includes("area"))
         temp.department = colNum;
-      else if (h.includes("contrasena") || h.includes("password") || h.includes("clave"))
-        temp.password = colNum;
     });
 
     if (
@@ -173,15 +168,11 @@ export async function POST(request: NextRequest) {
       colIndex.department > 0
         ? readCellText(row.getCell(colIndex.department))
         : "";
-    const password =
-      colIndex.password > 0 ? readCellText(row.getCell(colIndex.password)) : "";
 
-    // Ignorar filas vacías (solo pueden tener el índice N° prellenado)
     if (!fullName && !identification && !institutionalEmail && !rawRole) {
       continue;
     }
 
-    // Si Excel perdió el cero inicial de una cédula ecuatoriana de 9 dígitos que empieza con 9
     if (/^[1-9]\d{8}$/.test(identification)) {
       identification = `0${identification}`;
     }
@@ -208,7 +199,6 @@ export async function POST(request: NextRequest) {
       institutionalEmail,
       role: parsedRole,
       department: department || undefined,
-      password: password || undefined,
     });
 
     if (created.ok) {
@@ -219,10 +209,7 @@ export async function POST(request: NextRequest) {
         institutionalEmail: created.user.institutional_email ?? institutionalEmail,
         role: created.user.role,
         status: "created",
-        message: created.usedDefaultPassword
-          ? "Usuario creado (contraseña inicial = cédula)."
-          : "Usuario creado con contraseña personalizada.",
-        usedDefaultPassword: created.usedDefaultPassword,
+        message: "Creado (clave inicial = cédula; cambio obligatorio al ingresar).",
       });
     } else {
       results.push({

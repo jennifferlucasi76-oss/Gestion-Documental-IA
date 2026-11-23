@@ -14,12 +14,16 @@ export interface AuthenticatedProfile {
   fullName: string;
   role: UserRole;
   department: string;
+  mustChangePassword: boolean;
 }
 
 /**
  * Obtiene el perfil autenticado actual desde Supabase (debe ejecutarse dentro de <Suspense>).
+ * Si el usuario debe cambiar su contraseña inicial, redirige automáticamente a /cambiar-clave.
  */
-export async function requireAuthenticatedProfile(): Promise<AuthenticatedProfile> {
+export async function requireAuthenticatedProfile(options?: {
+  allowPasswordChangeRequired?: boolean;
+}): Promise<AuthenticatedProfile> {
   if (!isSupabaseConfigured()) {
     redirect("/login");
   }
@@ -35,7 +39,7 @@ export async function requireAuthenticatedProfile(): Promise<AuthenticatedProfil
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("identification, full_name, role, department")
+    .select("identification, full_name, role, department, must_change_password")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -44,6 +48,11 @@ export async function requireAuthenticatedProfile(): Promise<AuthenticatedProfil
     profile?.identification || user.email?.split("@")[0] || "—";
   const fullName = profile?.full_name || "Usuario Institucional";
   const department = profile?.department || "General";
+  const mustChangePassword = Boolean(profile?.must_change_password);
+
+  if (mustChangePassword && !options?.allowPasswordChangeRequired) {
+    redirect("/cambiar-clave");
+  }
 
   return {
     id: user.id,
@@ -51,19 +60,19 @@ export async function requireAuthenticatedProfile(): Promise<AuthenticatedProfil
     fullName,
     role,
     department,
+    mustChangePassword,
   };
 }
 
 /**
  * Garantiza que el usuario autenticado tenga acceso al rol de la pantalla solicitada.
- * El rol Rector (administrador) puede visualizar todos los paneles de rol.
  */
 export async function requireRoleAccess(
   targetRole: UserRole
 ): Promise<AuthenticatedProfile> {
   const profile = await requireAuthenticatedProfile();
 
-  if (profile.role !== "rector" && profile.role !== targetRole) {
+  if (profile.role !== targetRole) {
     redirect(getRoleHomePath(profile.role));
   }
 

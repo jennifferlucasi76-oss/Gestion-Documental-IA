@@ -15,7 +15,7 @@ async function UsuariosContent() {
   const { data } = await supabase
     .from("profiles")
     .select(
-      "id, identification, full_name, institutional_email, role, department, created_at"
+      "id, identification, full_name, institutional_email, role, department, must_change_password, created_at"
     )
     .order("created_at", { ascending: false });
 

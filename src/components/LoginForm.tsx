@@ -85,11 +85,13 @@ export function LoginForm({
         try {
           const { data: profile } = await supabase
             .from("profiles")
-            .select("role")
+            .select("role, must_change_password")
             .eq("id", data.user.id)
             .maybeSingle();
 
-          if (profile && isValidRole(profile.role)) {
+          if (profile?.must_change_password) {
+            destination = "/cambiar-clave";
+          } else if (profile && isValidRole(profile.role)) {
             destination = requestedNext ?? getRoleHomePath(profile.role);
           }
 
