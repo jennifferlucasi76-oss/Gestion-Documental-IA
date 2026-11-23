@@ -1,35 +1,59 @@
 -- ============================================================================
--- SGDI-IA: Sistema de Gestión Documental Inteligente (Prototipo de Tesis)
--- Script SQL inicial para Supabase (PostgreSQL + pgvector + Storage + RLS)
+-- SGDI-IA: Sistema de Gestión Documental Inteligente (Unidad Educativa San José)
+-- Script SQL para Supabase (PostgreSQL + pgvector + Storage + RLS)
 -- ============================================================================
 
--- 1. Habilitar extensión vectorial (pgvector)
+-- 1. Habilitar extensión vectorial (pgvector) y esquema privado para helpers RLS
 create extension if not exists vector;
+create schema if not exists private;
+revoke all on schema private from public;
+grant usage on schema private to authenticated;
 
--- 2. Tabla de perfiles y roles (vinculada a auth.users)
+-- 2. Tabla de perfiles y roles institucionales (vinculada a auth.users)
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
+  identification text unique,
   full_name text not null default '',
-  role text not null default 'consulta'
-    check (role in ('admin', 'secretaria', 'docente', 'consulta')),
+  role text not null default 'docente'
+    check (role in ('rector', 'secretaria', 'docente', 'coordinador')),
   department text not null default 'General',
   created_at timestamptz not null default now()
 );
 
--- Trigger para crear automáticamente el perfil cuando se registra un usuario
+create index if not exists idx_profiles_identification
+  on public.profiles (identification);
+
+-- Helper no recursivo para consultar el rol del usuario autenticado en políticas RLS
+create or replace function private.current_user_role()
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select p.role
+  from public.profiles p
+  where p.id = auth.uid();
+$$;
+
+revoke all on function private.current_user_role() from public;
+grant execute on function private.current_user_role() to authenticated;
+
+-- Trigger para crear automáticamente el perfil cuando se crea un usuario en auth.users
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
-  insert into public.profiles (id, full_name, role, department)
+  insert into public.profiles (id, identification, full_name, role, department)
   values (
     new.id,
-    coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
-    'consulta',
-    'General'
+    nullif(trim(coalesce(new.raw_user_meta_data ->> 'identification', split_part(new.email, '@', 1))), ''),
+    coalesce(nullif(trim(new.raw_user_meta_data ->> 'full_name'), ''), split_part(new.email, '@', 1)),
+    'docente',
+    coalesce(nullif(trim(new.raw_user_meta_data ->> 'department'), ''), 'General')
   )
   on conflict (id) do nothing;
   return new;
@@ -51,7 +75,6 @@ create table if not exists public.document_types (
   created_at timestamptz not null default now()
 );
 
--- Categorías iniciales de ejemplo (ajustar según levantamiento en la unidad educativa)
 insert into public.document_types (name, description, default_access_level) values
   ('Oficio', 'Comunicaciones oficiales externas o interinstitucionales', 'interno'),
   ('Memorando', 'Comunicaciones internas entre dependencias o autoridades', 'interno'),
@@ -126,27 +149,27 @@ create table if not exists public.audit_logs (
 );
 
 -- ============================================================================
--- 8. Seguridad: Función auxiliar de niveles de acceso + Row Level Security (RLS)
+-- 8. Seguridad: Niveles de acceso + Row Level Security (RLS)
 -- ============================================================================
 
 create or replace function public.can_access_level(doc_level text)
 returns boolean
 language sql
 stable
-security definer
-set search_path = public
+security invoker
+set search_path = ''
 as $$
-  select exists (
-    select 1
-    from public.profiles p
-    where p.id = auth.uid()
-      and (
-        p.role in ('admin', 'secretaria')
-        or (p.role = 'docente' and doc_level in ('publico', 'interno'))
-        or (p.role = 'consulta' and doc_level = 'publico')
-      )
-  );
+  select case private.current_user_role()
+    when 'rector' then true
+    when 'secretaria' then true
+    when 'coordinador' then doc_level in ('publico', 'interno')
+    when 'docente' then doc_level in ('publico', 'interno')
+    else false
+  end;
 $$;
+
+revoke all on function public.can_access_level(text) from public;
+grant execute on function public.can_access_level(text) to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.document_types enable row level security;
@@ -156,51 +179,57 @@ alter table public.document_vectors enable row level security;
 alter table public.audit_logs enable row level security;
 
 -- Políticas para profiles
-create policy "Usuarios ven su propio perfil o admin ve todos"
+drop policy if exists "Usuarios ven su propio perfil o admin ve todos" on public.profiles;
+drop policy if exists "Usuarios ven su propio perfil o rector ve todos" on public.profiles;
+create policy "Usuarios ven su propio perfil o rector ve todos"
   on public.profiles for select
   to authenticated
   using (
-    id = auth.uid()
-    or exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+    id = (select auth.uid())
+    or (select private.current_user_role()) = 'rector'
   );
 
-create policy "Solo admin actualiza roles de perfiles"
+drop policy if exists "Solo admin actualiza roles de perfiles" on public.profiles;
+drop policy if exists "Solo rector actualiza roles de perfiles" on public.profiles;
+create policy "Solo rector actualiza roles de perfiles"
   on public.profiles for update
   to authenticated
-  using (
-    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
-  );
+  using ((select private.current_user_role()) = 'rector')
+  with check ((select private.current_user_role()) = 'rector');
 
 -- Políticas para document_types
+drop policy if exists "Usuarios autenticados leen tipos documentales" on public.document_types;
 create policy "Usuarios autenticados leen tipos documentales"
   on public.document_types for select
   to authenticated
   using (true);
 
-create policy "Solo admin gestiona tipos documentales"
+drop policy if exists "Solo admin gestiona tipos documentales" on public.document_types;
+drop policy if exists "Solo rector gestiona tipos documentales" on public.document_types;
+create policy "Solo rector gestiona tipos documentales"
   on public.document_types for all
   to authenticated
-  using (
-    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
-  );
+  using ((select private.current_user_role()) = 'rector')
+  with check ((select private.current_user_role()) = 'rector');
 
 -- Políticas para documents
+drop policy if exists "Lectura de documentos según nivel de acceso del rol" on public.documents;
 create policy "Lectura de documentos según nivel de acceso del rol"
   on public.documents for select
   to authenticated
   using (public.can_access_level(access_level));
 
-create policy "Admin y secretaria pueden subir documentos"
+drop policy if exists "Admin y secretaria pueden subir documentos" on public.documents;
+drop policy if exists "Roles autorizados pueden subir documentos" on public.documents;
+create policy "Roles autorizados pueden subir documentos"
   on public.documents for insert
   to authenticated
   with check (
-    exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.role in ('admin', 'secretaria')
-    )
+    (select private.current_user_role()) in ('rector', 'secretaria', 'coordinador', 'docente')
   );
 
 -- Políticas para document_metadata
+drop policy if exists "Lectura de metadatos ligada al acceso del documento" on public.document_metadata;
 create policy "Lectura de metadatos ligada al acceso del documento"
   on public.document_metadata for select
   to authenticated
@@ -211,17 +240,17 @@ create policy "Lectura de metadatos ligada al acceso del documento"
     )
   );
 
-create policy "Admin y secretaria insertan metadatos"
+drop policy if exists "Admin y secretaria insertan metadatos" on public.document_metadata;
+drop policy if exists "Roles autorizados insertan metadatos" on public.document_metadata;
+create policy "Roles autorizados insertan metadatos"
   on public.document_metadata for insert
   to authenticated
   with check (
-    exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.role in ('admin', 'secretaria')
-    )
+    (select private.current_user_role()) in ('rector', 'secretaria', 'coordinador', 'docente')
   );
 
 -- Políticas para document_vectors
+drop policy if exists "Lectura de vectores ligada al acceso del documento" on public.document_vectors;
 create policy "Lectura de vectores ligada al acceso del documento"
   on public.document_vectors for select
   to authenticated
@@ -232,29 +261,31 @@ create policy "Lectura de vectores ligada al acceso del documento"
     )
   );
 
-create policy "Admin y secretaria insertan vectores"
+drop policy if exists "Admin y secretaria insertan vectores" on public.document_vectors;
+drop policy if exists "Roles autorizados insertan vectores" on public.document_vectors;
+create policy "Roles autorizados insertan vectores"
   on public.document_vectors for insert
   to authenticated
   with check (
-    exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.role in ('admin', 'secretaria')
-    )
+    (select private.current_user_role()) in ('rector', 'secretaria', 'coordinador', 'docente')
   );
 
 -- Políticas para audit_logs
-create policy "Admin ve toda la bitácora; usuario ve sus propios registros"
+drop policy if exists "Admin ve toda la bitácora; usuario ve sus propios registros" on public.audit_logs;
+drop policy if exists "Rector ve toda la bitácora; usuario ve sus propios registros" on public.audit_logs;
+create policy "Rector ve toda la bitácora; usuario ve sus propios registros"
   on public.audit_logs for select
   to authenticated
   using (
-    user_id = auth.uid()
-    or exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+    user_id = (select auth.uid())
+    or (select private.current_user_role()) = 'rector'
   );
 
+drop policy if exists "Usuarios autenticados registran eventos propios en bitácora" on public.audit_logs;
 create policy "Usuarios autenticados registran eventos propios en bitácora"
   on public.audit_logs for insert
   to authenticated
-  with check (user_id = auth.uid());
+  with check (user_id = (select auth.uid()));
 
 -- ============================================================================
 -- 9. Función RPC de Búsqueda Semántica (respeta RLS por security invoker)
@@ -333,6 +364,7 @@ insert into storage.buckets (id, name, public)
 values ('documentos', 'documentos', false)
 on conflict (id) do nothing;
 
+drop policy if exists "Lectura de archivos privados según nivel de acceso" on storage.objects;
 create policy "Lectura de archivos privados según nivel de acceso"
   on storage.objects for select
   to authenticated
@@ -344,14 +376,12 @@ create policy "Lectura de archivos privados según nivel de acceso"
     )
   );
 
-create policy "Admin y secretaria suben archivos al bucket privado"
+drop policy if exists "Admin y secretaria suben archivos al bucket privado" on storage.objects;
+drop policy if exists "Roles autorizados suben archivos al bucket privado" on storage.objects;
+create policy "Roles autorizados suben archivos al bucket privado"
   on storage.objects for insert
   to authenticated
   with check (
     bucket_id = 'documentos'
-    and exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.role in ('admin', 'secretaria')
-    )
+    and (select private.current_user_role()) in ('rector', 'secretaria', 'coordinador', 'docente')
   );
-

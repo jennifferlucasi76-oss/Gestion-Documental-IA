@@ -4,10 +4,18 @@ import { useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, Eye, EyeOff, Loader2, LogIn } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  getRoleHomePath,
+  identificationToAuthEmail,
+  isValidRole,
+} from "@/lib/roles";
 
-function getSafeRedirectPath(rawNext: string | null): string {
+function getSafeRedirectPath(rawNext: string | null): string | null {
   if (!rawNext || !rawNext.startsWith("/") || rawNext.startsWith("//")) {
-    return "/";
+    return null;
+  }
+  if (rawNext === "/" || rawNext === "/login") {
+    return null;
   }
   return rawNext;
 }
@@ -15,10 +23,10 @@ function getSafeRedirectPath(rawNext: string | null): string {
 function mapSupabaseAuthError(message: string): string {
   const lower = message.toLowerCase();
   if (lower.includes("invalid login credentials")) {
-    return "Credenciales incorrectas. Verifica tu correo y contraseña.";
+    return "Credenciales incorrectas. Verifica tu número de identificación y contraseña.";
   }
   if (lower.includes("email not confirmed")) {
-    return "Tu cuenta aún no ha sido confirmada.";
+    return "Tu cuenta aún no ha sido activada.";
   }
   if (lower.includes("rate limit") || lower.includes("too many requests")) {
     return "Demasiados intentos seguidos. Espera un momento e intenta nuevamente.";
@@ -33,9 +41,9 @@ export function LoginForm({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = getSafeRedirectPath(searchParams.get("next"));
+  const requestedNext = getSafeRedirectPath(searchParams.get("next"));
 
-  const [email, setEmail] = useState("");
+  const [identification, setIdentification] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -50,17 +58,19 @@ export function LoginForm({
       return;
     }
 
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) {
-      setErrorMsg("Ingresa tu correo y contraseña.");
+    const cleanId = identification.trim();
+    if (!cleanId || !password) {
+      setErrorMsg("Ingresa tu número de identificación y contraseña.");
       return;
     }
 
     setLoading(true);
     try {
       const supabase = createClient();
+      const authEmail = identificationToAuthEmail(cleanId);
+
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail,
+        email: authEmail,
         password,
       });
 
@@ -69,19 +79,31 @@ export function LoginForm({
         return;
       }
 
+      let destination = requestedNext ?? "/";
+
       if (data.user) {
         try {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", data.user.id)
+            .maybeSingle();
+
+          if (profile && isValidRole(profile.role)) {
+            destination = requestedNext ?? getRoleHomePath(profile.role);
+          }
+
           await supabase.from("audit_logs").insert({
             user_id: data.user.id,
             action: "LOGIN",
-            details: { method: "password", email: data.user.email },
+            details: { method: "identification", identification: cleanId },
           });
         } catch {
           // No bloquear el acceso si falla el registro en bitácora.
         }
       }
 
-      router.push(nextPath);
+      router.push(destination);
       router.refresh();
     } catch {
       setErrorMsg("No se pudo conectar con el servidor. Inténtalo nuevamente.");
@@ -105,20 +127,21 @@ export function LoginForm({
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label
-            htmlFor="email"
+            htmlFor="identification"
             className="mb-1.5 block text-xs font-semibold text-foreground/85"
           >
-            Correo electrónico
+            Número de identificación
           </label>
           <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
+            id="identification"
+            name="identification"
+            type="text"
+            inputMode="numeric"
+            autoComplete="username"
             required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="usuario@uesanjose.edu.ec"
+            value={identification}
+            onChange={(e) => setIdentification(e.target.value)}
+            placeholder="0951374305"
             className="w-full rounded-xl border border-[#DCE3EE] bg-[#F2F6FC] px-4 py-3 text-sm text-foreground outline-none transition placeholder:text-ue-gray/75 focus:border-ue-crimson focus:bg-white focus:ring-2 focus:ring-ue-crimson/15"
           />
         </div>
