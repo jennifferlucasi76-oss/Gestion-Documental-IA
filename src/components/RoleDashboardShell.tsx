@@ -195,29 +195,15 @@ export function RoleDashboardShell({
               {/* Banner de bienvenida del rol */}
               <section className="relative overflow-hidden rounded-3xl border border-ue-border bg-white p-6 shadow-sm sm:p-7">
                 <div className="absolute inset-y-0 right-0 w-1.5 bg-gradient-to-b from-ue-gold via-ue-crimson to-ue-crimson-deep" />
-                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-ue-crimson">
-                      Rol Principal
-                    </p>
-                    <h2 className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-                      {config.principalRole}
-                    </h2>
-                    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-foreground/70">
-                      {config.welcomeSubtitle}
-                    </p>
-                  </div>
-
-                  {roleKey === "rector" && (
-                    <Link
-                      href="/panel/rector/usuarios"
-                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-ue-crimson px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-ue-crimson-dark"
-                    >
-                      <UserPlus className="h-4 w-4 text-ue-gold" />
-                      Registro de Usuarios
-                    </Link>
-                  )}
-                </div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-ue-crimson">
+                  Rol Principal
+                </p>
+                <h2 className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                  {config.principalRole}
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-relaxed text-foreground/70">
+                  {config.welcomeSubtitle}
+                </p>
               </section>
 
               {/* Indicadores principales (estructura base) */}
